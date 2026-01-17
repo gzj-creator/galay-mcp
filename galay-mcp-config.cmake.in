@@ -1,0 +1,5 @@
+@PACKAGE_INIT@
+
+include("${CMAKE_CURRENT_DIR}/galay-mcp-targets.cmake")
+
+check_required_components(galay-mcp)
