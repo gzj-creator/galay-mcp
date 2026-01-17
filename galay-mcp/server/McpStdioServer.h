@@ -4,10 +4,10 @@
 #include "../common/McpBase.h"
 #include "../common/McpError.h"
 #include <functional>
-#include <map>
+#include <unordered_map>
 #include <memory>
 #include <atomic>
-#include <mutex>
+#include <shared_mutex>
 #include <iostream>
 
 namespace galay {
@@ -136,24 +136,24 @@ private:
         Tool tool;
         ToolHandler handler;
     };
-    std::map<std::string, ToolInfo> m_tools;
-    std::mutex m_toolsMutex;
+    std::unordered_map<std::string, ToolInfo> m_tools;
+    mutable std::shared_mutex m_toolsMutex;
 
     // 资源注册表
     struct ResourceInfo {
         Resource resource;
         ResourceReader reader;
     };
-    std::map<std::string, ResourceInfo> m_resources;
-    std::mutex m_resourcesMutex;
+    std::unordered_map<std::string, ResourceInfo> m_resources;
+    mutable std::shared_mutex m_resourcesMutex;
 
     // 提示注册表
     struct PromptInfo {
         Prompt prompt;
         PromptGetter getter;
     };
-    std::map<std::string, PromptInfo> m_prompts;
-    std::mutex m_promptsMutex;
+    std::unordered_map<std::string, PromptInfo> m_prompts;
+    mutable std::shared_mutex m_promptsMutex;
 
     // 运行状态
     std::atomic<bool> m_running;

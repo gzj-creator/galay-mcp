@@ -1,6 +1,7 @@
 #include "McpStdioServer.h"
 #include <sstream>
 #include <stdexcept>
+#include <mutex>
 
 namespace galay {
 namespace mcp {
@@ -27,7 +28,7 @@ void McpStdioServer::addTool(const std::string& name,
                              const std::string& description,
                              const Json& inputSchema,
                              ToolHandler handler) {
-    std::lock_guard<std::mutex> lock(m_toolsMutex);
+    std::unique_lock<std::shared_mutex> lock(m_toolsMutex);
 
     Tool tool;
     tool.name = name;
@@ -46,7 +47,7 @@ void McpStdioServer::addResource(const std::string& uri,
                                  const std::string& description,
                                  const std::string& mimeType,
                                  ResourceReader reader) {
-    std::lock_guard<std::mutex> lock(m_resourcesMutex);
+    std::unique_lock<std::shared_mutex> lock(m_resourcesMutex);
 
     Resource resource;
     resource.uri = uri;
@@ -65,7 +66,7 @@ void McpStdioServer::addPrompt(const std::string& name,
                                const std::string& description,
                                const std::vector<Json>& arguments,
                                PromptGetter getter) {
-    std::lock_guard<std::mutex> lock(m_promptsMutex);
+    std::unique_lock<std::shared_mutex> lock(m_promptsMutex);
 
     Prompt prompt;
     prompt.name = name;
@@ -194,7 +195,7 @@ void McpStdioServer::handleToolsList(const JsonRpcRequest& request) {
         return;
     }
 
-    std::lock_guard<std::mutex> lock(m_toolsMutex);
+    std::shared_lock<std::shared_mutex> lock(m_toolsMutex);
 
     Json toolsArray = Json::array();
     for (const auto& [name, info] : m_tools) {
@@ -225,7 +226,7 @@ void McpStdioServer::handleToolsCall(const JsonRpcRequest& request) {
     try {
         ToolCallParams params = ToolCallParams::fromJson(request.params);
 
-        std::lock_guard<std::mutex> lock(m_toolsMutex);
+        std::shared_lock<std::shared_mutex> lock(m_toolsMutex);
 
         auto it = m_tools.find(params.name);
         if (it == m_tools.end()) {
@@ -273,7 +274,7 @@ void McpStdioServer::handleResourcesList(const JsonRpcRequest& request) {
         return;
     }
 
-    std::lock_guard<std::mutex> lock(m_resourcesMutex);
+    std::shared_lock<std::shared_mutex> lock(m_resourcesMutex);
 
     Json resourcesArray = Json::array();
     for (const auto& [uri, info] : m_resources) {
@@ -304,7 +305,7 @@ void McpStdioServer::handleResourcesRead(const JsonRpcRequest& request) {
     try {
         std::string uri = request.params["uri"];
 
-        std::lock_guard<std::mutex> lock(m_resourcesMutex);
+        std::shared_lock<std::shared_mutex> lock(m_resourcesMutex);
 
         auto it = m_resources.find(uri);
         if (it == m_resources.end()) {
@@ -355,7 +356,7 @@ void McpStdioServer::handlePromptsList(const JsonRpcRequest& request) {
         return;
     }
 
-    std::lock_guard<std::mutex> lock(m_promptsMutex);
+    std::shared_lock<std::shared_mutex> lock(m_promptsMutex);
 
     Json promptsArray = Json::array();
     for (const auto& [name, info] : m_prompts) {
@@ -388,7 +389,7 @@ void McpStdioServer::handlePromptsGet(const JsonRpcRequest& request) {
         Json arguments = request.params.contains("arguments") ?
                         request.params["arguments"] : Json::object();
 
-        std::lock_guard<std::mutex> lock(m_promptsMutex);
+        std::shared_lock<std::shared_mutex> lock(m_promptsMutex);
 
         auto it = m_prompts.find(name);
         if (it == m_prompts.end()) {
@@ -483,7 +484,7 @@ std::expected<void, McpError> McpStdioServer::writeMessage(const Json& message) 
 
     try {
         std::string line = message.dump();
-        *m_output << line << std::endl;
+        *m_output << line << '\n';  // 使用 \n 替代 std::endl，避免不必要的flush
         m_output->flush();
         return {};
     } catch (const std::exception& e) {
