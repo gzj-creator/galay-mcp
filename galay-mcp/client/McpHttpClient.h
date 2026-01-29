@@ -139,6 +139,9 @@ private:
     // HTTP客户端
     std::unique_ptr<http::HttpClient> m_httpClient;
 
+    // 服务器URL
+    std::string m_serverUrl;
+
     // 客户端信息
     std::string m_clientName;
     std::string m_clientVersion;

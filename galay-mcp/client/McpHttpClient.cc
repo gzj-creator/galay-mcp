@@ -3,6 +3,7 @@
 #include <stdexcept>
 #include <future>
 #include <chrono>
+#include <iostream>
 
 namespace galay {
 namespace mcp {
@@ -24,6 +25,9 @@ std::expected<void, McpError> McpHttpClient::connect(const std::string& url) {
         return std::unexpected(McpError::connectionError("Already connected"));
     }
 
+    // 保存URL的副本
+    m_serverUrl = url;
+
     // 使用协程连接到服务器
     std::promise<std::expected<void, McpError>> promise;
     auto future = promise.get_future();
@@ -33,8 +37,8 @@ std::expected<void, McpError> McpHttpClient::connect(const std::string& url) {
         return std::unexpected(McpError::connectionError("No IO scheduler available"));
     }
 
-    scheduler->spawn([this, url, &promise]() -> kernel::Coroutine {
-        auto result = co_await m_httpClient->connect(url);
+    scheduler->spawn([this, &promise]() -> kernel::Coroutine {
+        auto result = co_await m_httpClient->connect(m_serverUrl);
         if (!result) {
             promise.set_value(std::unexpected(
                 McpError::connectionError(result.error().message())));
@@ -300,8 +304,8 @@ std::expected<Json, McpError> McpHttpClient::sendRequest(const std::string& meth
     }
 
     scheduler->spawn([this, requestBody, &promise]() -> kernel::Coroutine {
-        // 发送POST请求
-        auto result = co_await m_httpClient->post(
+        // 获取awaitable引用，然后在循环中重复co_await
+        auto& awaitable = m_httpClient->post(
             m_httpClient->url().path,
             requestBody,
             "application/json",
@@ -311,56 +315,60 @@ std::expected<Json, McpError> McpHttpClient::sendRequest(const std::string& meth
             }
         );
 
-        if (!result) {
-            promise.set_value(std::unexpected(
-                McpError::connectionError(result.error().message())));
-            co_return;
-        }
+        // 循环等待直到完成
+        while (true) {
+            auto result = co_await awaitable;
 
-        if (!result.value()) {
-            promise.set_value(std::unexpected(
-                McpError::connectionError("Request incomplete")));
-            co_return;
-        }
-
-        auto response = result.value().value();
-
-        // 检查HTTP状态码
-        if (response.header().code() != http::HttpStatusCode::OK_200) {
-            promise.set_value(std::unexpected(
-                McpError::connectionError("HTTP error: " +
-                    std::to_string(static_cast<int>(response.header().code())))));
-            co_return;
-        }
-
-        // 解析响应
-        try {
-            std::string responseBody = response.getBodyStr();
-            Json responseJson = Json::parse(responseBody);
-
-            JsonRpcResponse rpcResponse = JsonRpcResponse::fromJson(responseJson);
-
-            if (rpcResponse.error.has_value()) {
-                JsonRpcError error = JsonRpcError::fromJson(rpcResponse.error.value());
+            if (!result) {
                 promise.set_value(std::unexpected(
-                    McpError::fromJsonRpcError(error.code, error.message,
-                        error.data.has_value() ? error.data.value().dump() : "")));
+                    McpError::connectionError(result.error().message())));
                 co_return;
             }
 
-            if (!rpcResponse.result.has_value()) {
+            if (!result.value()) {
+                // 请求未完成，继续等待
+                continue;
+            }
+
+            auto response = result.value().value();
+
+            // 检查HTTP状态码
+            if (response.header().code() != http::HttpStatusCode::OK_200) {
                 promise.set_value(std::unexpected(
-                    McpError::invalidResponse("No result in response")));
+                    McpError::connectionError("HTTP error: " +
+                        std::to_string(static_cast<int>(response.header().code())))));
                 co_return;
             }
 
-            promise.set_value(rpcResponse.result.value());
-        } catch (const std::exception& e) {
-            promise.set_value(std::unexpected(
-                McpError::parseError(e.what())));
-        }
+            // 解析响应
+            try {
+                std::string responseBody = response.getBodyStr();
+                Json responseJson = Json::parse(responseBody);
 
-        co_return;
+                JsonRpcResponse rpcResponse = JsonRpcResponse::fromJson(responseJson);
+
+                if (rpcResponse.error.has_value()) {
+                    JsonRpcError error = JsonRpcError::fromJson(rpcResponse.error.value());
+                    promise.set_value(std::unexpected(
+                        McpError::fromJsonRpcError(error.code, error.message,
+                            error.data.has_value() ? error.data.value().dump() : "")));
+                    co_return;
+                }
+
+                if (!rpcResponse.result.has_value()) {
+                    promise.set_value(std::unexpected(
+                        McpError::invalidResponse("No result in response")));
+                    co_return;
+                }
+
+                promise.set_value(rpcResponse.result.value());
+            } catch (const std::exception& e) {
+                promise.set_value(std::unexpected(
+                    McpError::parseError(e.what())));
+            }
+
+            co_return;
+        }
     }());
 
     // 等待响应
