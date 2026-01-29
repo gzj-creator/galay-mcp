@@ -1,5 +1,6 @@
 #include "McpHttpServer.h"
 #include "galay-http/utils/Http1_1ResponseBuilder.h"
+#include <iostream>
 
 namespace galay {
 namespace mcp {
