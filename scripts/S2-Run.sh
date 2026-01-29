@@ -5,7 +5,7 @@
 
 set -e
 
-SERVER="./bin/test_stdio_server"
+SERVER="./bin/T2-StdioServer"
 TEMP_OUTPUT="/tmp/mcp_test_output_$$"
 TEMP_INPUT="/tmp/mcp_test_input_$$"
 

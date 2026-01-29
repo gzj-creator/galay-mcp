@@ -45,6 +45,10 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
     CXX_STANDARD_REQUIRED ON
 )
 
+# 查找 galay-http 和 galay-kernel（可选）
+find_library(GALAY_HTTP_LIB NAMES galay-http PATHS /usr/local/lib /usr/lib)
+find_library(GALAY_KERNEL_LIB NAMES galay-kernel PATHS /usr/local/lib /usr/lib)
+
 # 包含目录
 target_include_directories(${PROJECT_NAME} PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>
@@ -54,6 +58,12 @@ target_include_directories(${PROJECT_NAME} PUBLIC
 # 如果使用 header-only 版本的 nlohmann_json，添加其包含目录
 if(NOT nlohmann_json_FOUND AND NLOHMANN_JSON_INCLUDE_DIR)
     target_include_directories(${PROJECT_NAME} PUBLIC ${NLOHMANN_JSON_INCLUDE_DIR})
+endif()
+
+# 如果找到 galay-http 和 galay-kernel，添加其头文件和库
+if(GALAY_HTTP_LIB AND GALAY_KERNEL_LIB)
+    target_include_directories(${PROJECT_NAME} PUBLIC /usr/local/include)
+    target_link_libraries(${PROJECT_NAME} PUBLIC ${GALAY_HTTP_LIB} ${GALAY_KERNEL_LIB})
 endif()
 
 # 安装规则
