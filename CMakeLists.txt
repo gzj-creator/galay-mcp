@@ -23,6 +23,18 @@ if(BUILD_TESTS)
     add_subdirectory(test)
 endif()
 
+# 可选：构建性能测试
+option(BUILD_BENCHMARKS "Build benchmark programs" ON)
+if(BUILD_BENCHMARKS)
+    add_subdirectory(benchmark)
+endif()
+
+# 可选：构建示例
+option(BUILD_EXAMPLES "Build example programs" ON)
+if(BUILD_EXAMPLES)
+    add_subdirectory(example)
+endif()
+
 # 生成 CMake 配置文件供其他项目使用
 include(CMakePackageConfigHelpers)
 

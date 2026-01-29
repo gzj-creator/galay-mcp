@@ -166,17 +166,17 @@
 
 ## 测试脚本
 
-测试脚本位于 `scripts/run.sh`，可以通过以下命令运行：
+测试脚本位于 `scripts/S2-Run.sh`，可以通过以下命令运行：
 
 ```bash
 cd build
-bash ../scripts/run.sh
+bash ../scripts/S2-Run.sh
 ```
 
-验证脚本位于 `scripts/check.sh`，可以从项目根目录运行：
+验证脚本位于 `scripts/S1-Check.sh`，可以从项目根目录运行：
 
 ```bash
-bash scripts/check.sh
+bash scripts/S1-Check.sh
 ```
 
 ## 结论

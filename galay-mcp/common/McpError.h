@@ -94,6 +94,10 @@ public:
         return McpError(McpErrorCode::ConnectionClosed, "Connection closed", details);
     }
 
+    static McpError connectionError(const std::string& details = "") {
+        return McpError(McpErrorCode::ConnectionFailed, "Connection error", details);
+    }
+
     static McpError protocolError(const std::string& details = "") {
         return McpError(McpErrorCode::ProtocolError, "Protocol error", details);
     }
@@ -134,6 +138,10 @@ public:
         return McpError(McpErrorCode::ToolExecutionFailed, "Tool execution failed", details);
     }
 
+    static McpError toolError(const std::string& details = "") {
+        return McpError(McpErrorCode::ToolExecutionFailed, "Tool error", details);
+    }
+
     static McpError resourceNotFound(const std::string& uri) {
         return McpError(McpErrorCode::ResourceNotFound, "Resource not found", uri);
     }
@@ -164,6 +172,29 @@ public:
 
     static McpError unknown(const std::string& details = "") {
         return McpError(McpErrorCode::Unknown, "Unknown error", details);
+    }
+
+    static McpError invalidResponse(const std::string& details = "") {
+        return McpError(McpErrorCode::InvalidMessage, "Invalid response", details);
+    }
+
+    static McpError fromJsonRpcError(int code, const std::string& message, const std::string& details = "") {
+        // 将 JSON-RPC 错误码映射到 McpErrorCode
+        McpErrorCode mcpCode;
+        if (code == -32700) {
+            mcpCode = McpErrorCode::ParseError;
+        } else if (code == -32600) {
+            mcpCode = McpErrorCode::InvalidRequest;
+        } else if (code == -32601) {
+            mcpCode = McpErrorCode::MethodNotFound;
+        } else if (code == -32602) {
+            mcpCode = McpErrorCode::InvalidParams;
+        } else if (code == -32603) {
+            mcpCode = McpErrorCode::InternalError;
+        } else {
+            mcpCode = McpErrorCode::Unknown;
+        }
+        return McpError(mcpCode, message, details);
     }
 
 private:
