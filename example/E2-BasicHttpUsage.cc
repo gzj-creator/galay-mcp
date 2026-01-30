@@ -9,6 +9,7 @@
 #include "galay-kernel/kernel/Runtime.h"
 #include <iostream>
 #include <chrono>
+#include <thread>
 
 using namespace galay::mcp;
 using namespace galay::kernel;
@@ -145,6 +146,105 @@ void runHttpServer() {
     server.start();
 }
 
+// 客户端测试协程
+Coroutine runClientTest(McpHttpClient& client, const std::string& url, int& exitCode) {
+    // 连接到服务器
+    std::cout << "Connecting to " << url << "..." << std::endl;
+    auto connectResult = co_await client.connect(url);
+    if (!connectResult) {
+        std::cerr << "Failed to connect: " << connectResult.error().message() << std::endl;
+        exitCode = 1;
+        co_return;
+    }
+
+    // 初始化
+    std::cout << "Initializing..." << std::endl;
+    std::expected<void, McpError> initResult;
+    co_await client.initialize("example-http-client", "1.0.0", initResult).wait();
+    if (!initResult) {
+        std::cerr << "Failed to initialize: " << initResult.error().message() << std::endl;
+        exitCode = 1;
+        co_return;
+    }
+
+    std::cout << "Connected to: " << client.getServerInfo().name << std::endl;
+
+    // 列出工具
+    std::cout << "\n=== Available Tools ===" << std::endl;
+    std::expected<std::vector<Tool>, McpError> toolsResult;
+    co_await client.listTools(toolsResult).wait();
+    if (toolsResult) {
+        for (const auto& tool : toolsResult.value()) {
+            std::cout << "  - " << tool.name << ": " << tool.description << std::endl;
+        }
+    }
+
+    // 调用计算器工具
+    std::cout << "\n=== Calling Calculator Tool ===" << std::endl;
+    Json calcArgs;
+    calcArgs["operation"] = "multiply";
+    calcArgs["a"] = 12;
+    calcArgs["b"] = 8;
+    std::expected<Json, McpError> calcResult;
+    co_await client.callTool("calculate", calcArgs, calcResult).wait();
+    if (calcResult) {
+        std::cout << "12 * 8 = " << calcResult.value()["result"] << std::endl;
+    }
+
+    // 列出资源
+    std::cout << "\n=== Available Resources ===" << std::endl;
+    std::expected<std::vector<Resource>, McpError> resourcesResult;
+    co_await client.listResources(resourcesResult).wait();
+    if (resourcesResult) {
+        for (const auto& resource : resourcesResult.value()) {
+            std::cout << "  - " << resource.uri << ": " << resource.name << std::endl;
+        }
+    }
+
+    // 读取时间资源
+    std::cout << "\n=== Reading Time Resource ===" << std::endl;
+    std::expected<std::string, McpError> timeResult;
+    co_await client.readResource("example://time", timeResult).wait();
+    if (timeResult) {
+        std::cout << "Current time: " << timeResult.value();
+    }
+
+    // 列出提示
+    std::cout << "\n=== Available Prompts ===" << std::endl;
+    std::expected<std::vector<Prompt>, McpError> promptsResult;
+    co_await client.listPrompts(promptsResult).wait();
+    if (promptsResult) {
+        for (const auto& prompt : promptsResult.value()) {
+            std::cout << "  - " << prompt.name << ": " << prompt.description << std::endl;
+        }
+    }
+
+    // 获取提示
+    std::cout << "\n=== Getting Code Review Prompt ===" << std::endl;
+    Json promptArgs;
+    promptArgs["language"] = "C++";
+    std::expected<Json, McpError> promptResult;
+    co_await client.getPrompt("code_review", promptArgs, promptResult).wait();
+    if (promptResult) {
+        std::cout << "Prompt: " << promptResult.value().dump(2) << std::endl;
+    }
+
+    // 测试ping
+    std::cout << "\n=== Testing Ping ===" << std::endl;
+    std::expected<void, McpError> pingResult;
+    co_await client.ping(pingResult).wait();
+    if (pingResult) {
+        std::cout << "Ping successful!" << std::endl;
+    }
+
+    // 断开连接
+    co_await client.disconnect();
+    std::cout << "\nClient disconnected." << std::endl;
+
+    exitCode = 0;
+    co_return;
+}
+
 /**
  * @brief 简单的HTTP客户端示例
  *
@@ -158,91 +258,17 @@ void runHttpClient(const std::string& url) {
     // 创建客户端
     McpHttpClient client(runtime);
 
-    // 连接到服务器
-    std::cout << "Connecting to " << url << "..." << std::endl;
-    auto connectResult = client.connect(url);
-    if (!connectResult) {
-        std::cerr << "Failed to connect: " << connectResult.error().toString() << std::endl;
-        runtime.stop();
-        return;
-    }
+    int exitCode = 0;
 
-    // 初始化
-    std::cout << "Initializing..." << std::endl;
-    auto initResult = client.initialize("example-http-client", "1.0.0");
-    if (!initResult) {
-        std::cerr << "Failed to initialize: " << initResult.error().toString() << std::endl;
-        runtime.stop();
-        return;
-    }
+    // 在IO调度器上运行测试协程
+    auto* scheduler = runtime.getNextIOScheduler();
+    scheduler->spawn(runClientTest(client, url, exitCode));
 
-    std::cout << "Connected to: " << client.getServerInfo().name << std::endl;
+    // 等待测试完成
+    std::this_thread::sleep_for(std::chrono::seconds(10));
 
-    // 列出工具
-    std::cout << "\n=== Available Tools ===" << std::endl;
-    auto toolsResult = client.listTools();
-    if (toolsResult) {
-        for (const auto& tool : toolsResult.value()) {
-            std::cout << "  - " << tool.name << ": " << tool.description << std::endl;
-        }
-    }
-
-    // 调用计算器工具
-    std::cout << "\n=== Calling Calculator Tool ===" << std::endl;
-    Json calcArgs;
-    calcArgs["operation"] = "multiply";
-    calcArgs["a"] = 12;
-    calcArgs["b"] = 8;
-    auto calcResult = client.callTool("calculate", calcArgs);
-    if (calcResult) {
-        std::cout << "12 * 8 = " << calcResult.value()["result"] << std::endl;
-    }
-
-    // 列出资源
-    std::cout << "\n=== Available Resources ===" << std::endl;
-    auto resourcesResult = client.listResources();
-    if (resourcesResult) {
-        for (const auto& resource : resourcesResult.value()) {
-            std::cout << "  - " << resource.uri << ": " << resource.name << std::endl;
-        }
-    }
-
-    // 读取时间资源
-    std::cout << "\n=== Reading Time Resource ===" << std::endl;
-    auto timeResult = client.readResource("example://time");
-    if (timeResult) {
-        std::cout << "Current time: " << timeResult.value();
-    }
-
-    // 列出提示
-    std::cout << "\n=== Available Prompts ===" << std::endl;
-    auto promptsResult = client.listPrompts();
-    if (promptsResult) {
-        for (const auto& prompt : promptsResult.value()) {
-            std::cout << "  - " << prompt.name << ": " << prompt.description << std::endl;
-        }
-    }
-
-    // 获取提示
-    std::cout << "\n=== Getting Code Review Prompt ===" << std::endl;
-    Json promptArgs;
-    promptArgs["language"] = "C++";
-    auto promptResult = client.getPrompt("code_review", promptArgs);
-    if (promptResult) {
-        std::cout << "Prompt: " << promptResult.value().dump(2) << std::endl;
-    }
-
-    // 测试ping
-    std::cout << "\n=== Testing Ping ===" << std::endl;
-    auto pingResult = client.ping();
-    if (pingResult) {
-        std::cout << "Ping successful!" << std::endl;
-    }
-
-    // 断开连接
-    client.disconnect();
+    // 停止Runtime
     runtime.stop();
-    std::cout << "\nClient disconnected." << std::endl;
 }
 
 int main(int argc, char* argv[]) {
