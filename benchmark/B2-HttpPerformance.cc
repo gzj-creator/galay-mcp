@@ -93,139 +93,6 @@ struct PerformanceStats {
     }
 };
 
-// 测试工具调用性能
-void benchmarkToolCall(McpHttpClient& client, size_t iterations) {
-    PerformanceStats stats;
-
-    std::cout << "\nBenchmarking tool calls (" << iterations << " iterations)..." << std::endl;
-
-    for (size_t i = 0; i < iterations; ++i) {
-        Json args;
-        args["message"] = "Benchmark test message " + std::to_string(i);
-
-        auto start = high_resolution_clock::now();
-        auto result = client.callTool("echo", args);
-        auto end = high_resolution_clock::now();
-
-        if (!result) {
-            std::cerr << "Error in iteration " << i << ": " << result.error().toString() << std::endl;
-            continue;
-        }
-
-        double latencyMs = duration_cast<microseconds>(end - start).count() / 1000.0;
-        stats.addLatency(latencyMs);
-
-        if ((i + 1) % 100 == 0) {
-            std::cout << "Progress: " << (i + 1) << "/" << iterations << "\r" << std::flush;
-        }
-    }
-
-    stats.printReport("HTTP Tool Call");
-}
-
-// 测试资源读取性能
-void benchmarkResourceRead(McpHttpClient& client, size_t iterations) {
-    PerformanceStats stats;
-
-    std::cout << "\nBenchmarking resource reads (" << iterations << " iterations)..." << std::endl;
-
-    for (size_t i = 0; i < iterations; ++i) {
-        auto start = high_resolution_clock::now();
-        auto result = client.readResource("example://hello");
-        auto end = high_resolution_clock::now();
-
-        if (!result) {
-            std::cerr << "Error in iteration " << i << ": " << result.error().toString() << std::endl;
-            continue;
-        }
-
-        double latencyMs = duration_cast<microseconds>(end - start).count() / 1000.0;
-        stats.addLatency(latencyMs);
-
-        if ((i + 1) % 100 == 0) {
-            std::cout << "Progress: " << (i + 1) << "/" << iterations << "\r" << std::flush;
-        }
-    }
-
-    stats.printReport("HTTP Resource Read");
-}
-
-// 测试列表操作性能
-void benchmarkListOperations(McpHttpClient& client, size_t iterations) {
-    PerformanceStats toolsStats;
-    PerformanceStats resourcesStats;
-    PerformanceStats promptsStats;
-
-    std::cout << "\nBenchmarking list operations (" << iterations << " iterations)..." << std::endl;
-
-    for (size_t i = 0; i < iterations; ++i) {
-        {
-            auto start = high_resolution_clock::now();
-            auto result = client.listTools();
-            auto end = high_resolution_clock::now();
-            if (result) {
-                double latencyMs = duration_cast<microseconds>(end - start).count() / 1000.0;
-                toolsStats.addLatency(latencyMs);
-            }
-        }
-
-        {
-            auto start = high_resolution_clock::now();
-            auto result = client.listResources();
-            auto end = high_resolution_clock::now();
-            if (result) {
-                double latencyMs = duration_cast<microseconds>(end - start).count() / 1000.0;
-                resourcesStats.addLatency(latencyMs);
-            }
-        }
-
-        {
-            auto start = high_resolution_clock::now();
-            auto result = client.listPrompts();
-            auto end = high_resolution_clock::now();
-            if (result) {
-                double latencyMs = duration_cast<microseconds>(end - start).count() / 1000.0;
-                promptsStats.addLatency(latencyMs);
-            }
-        }
-
-        if ((i + 1) % 100 == 0) {
-            std::cout << "Progress: " << (i + 1) << "/" << iterations << "\r" << std::flush;
-        }
-    }
-
-    toolsStats.printReport("HTTP List Tools");
-    resourcesStats.printReport("HTTP List Resources");
-    promptsStats.printReport("HTTP List Prompts");
-}
-
-// 测试Ping性能
-void benchmarkPing(McpHttpClient& client, size_t iterations) {
-    PerformanceStats stats;
-
-    std::cout << "\nBenchmarking ping (" << iterations << " iterations)..." << std::endl;
-
-    for (size_t i = 0; i < iterations; ++i) {
-        auto start = high_resolution_clock::now();
-        auto result = client.ping();
-        auto end = high_resolution_clock::now();
-
-        if (!result) {
-            std::cerr << "Error in iteration " << i << ": " << result.error().toString() << std::endl;
-            continue;
-        }
-
-        double latencyMs = duration_cast<microseconds>(end - start).count() / 1000.0;
-        stats.addLatency(latencyMs);
-
-        if ((i + 1) % 100 == 0) {
-            std::cout << "Progress: " << (i + 1) << "/" << iterations << "\r" << std::flush;
-        }
-    }
-
-    stats.printReport("HTTP Ping");
-}
-
 void printSystemInfo() {
     std::cout << "\n=== System Information ===" << std::endl;
     std::cout << "Test Date: " << __DATE__ << " " << __TIME__ << std::endl;
@@ -242,6 +109,156 @@ void printSystemInfo() {
     std::cout << "C++ Standard: " << __cplusplus << std::endl;
 }
 
+// 性能测试协程
+Coroutine runBenchmark(McpHttpClient& client, const std::string& url, int& exitCode) {
+    // 连接到服务器
+    std::cout << "\nConnecting to server..." << std::endl;
+    auto connectResult = co_await client.connect(url);
+    if (!connectResult) {
+        std::cerr << "Failed to connect: " << connectResult.error().message() << std::endl;
+        exitCode = 1;
+        co_return;
+    }
+
+    // 初始化
+    std::cout << "Initializing client..." << std::endl;
+    std::expected<void, McpError> initResult;
+    co_await client.initialize("benchmark-http-client", "1.0.0", initResult).wait();
+    if (!initResult) {
+        std::cerr << "Failed to initialize: " << initResult.error().message() << std::endl;
+        exitCode = 1;
+        co_return;
+    }
+    std::cout << "Connected to: " << client.getServerInfo().name << std::endl;
+
+    const size_t iterations = 1000;
+
+    // Ping测试
+    {
+        PerformanceStats stats;
+        std::cout << "\nBenchmarking ping (" << iterations << " iterations)..." << std::endl;
+
+        for (size_t i = 0; i < iterations; ++i) {
+            auto start = high_resolution_clock::now();
+            std::expected<void, McpError> pingResult;
+            co_await client.ping(pingResult).wait();
+            auto end = high_resolution_clock::now();
+
+            if (pingResult) {
+                double latencyMs = duration_cast<microseconds>(end - start).count() / 1000.0;
+                stats.addLatency(latencyMs);
+            }
+
+            if ((i + 1) % 100 == 0) {
+                std::cout << "Progress: " << (i + 1) << "/" << iterations << "\r" << std::flush;
+            }
+        }
+        stats.printReport("HTTP Ping");
+    }
+
+    // Tool Call测试
+    {
+        PerformanceStats stats;
+        std::cout << "\nBenchmarking tool calls (" << iterations << " iterations)..." << std::endl;
+
+        for (size_t i = 0; i < iterations; ++i) {
+            Json args;
+            args["message"] = "Benchmark test message " + std::to_string(i);
+
+            auto start = high_resolution_clock::now();
+            std::expected<Json, McpError> callResult;
+            co_await client.callTool("echo", args, callResult).wait();
+            auto end = high_resolution_clock::now();
+
+            if (callResult) {
+                double latencyMs = duration_cast<microseconds>(end - start).count() / 1000.0;
+                stats.addLatency(latencyMs);
+            }
+
+            if ((i + 1) % 100 == 0) {
+                std::cout << "Progress: " << (i + 1) << "/" << iterations << "\r" << std::flush;
+            }
+        }
+        stats.printReport("HTTP Tool Call");
+    }
+
+    // Resource Read测试
+    {
+        PerformanceStats stats;
+        std::cout << "\nBenchmarking resource reads (" << iterations << " iterations)..." << std::endl;
+
+        for (size_t i = 0; i < iterations; ++i) {
+            auto start = high_resolution_clock::now();
+            std::expected<std::string, McpError> readResult;
+            co_await client.readResource("example://hello", readResult).wait();
+            auto end = high_resolution_clock::now();
+
+            if (readResult) {
+                double latencyMs = duration_cast<microseconds>(end - start).count() / 1000.0;
+                stats.addLatency(latencyMs);
+            }
+
+            if ((i + 1) % 100 == 0) {
+                std::cout << "Progress: " << (i + 1) << "/" << iterations << "\r" << std::flush;
+            }
+        }
+        stats.printReport("HTTP Resource Read");
+    }
+
+    // List Operations测试
+    {
+        PerformanceStats toolsStats, resourcesStats, promptsStats;
+        std::cout << "\nBenchmarking list operations (" << iterations << " iterations)..." << std::endl;
+
+        for (size_t i = 0; i < iterations; ++i) {
+            {
+                auto start = high_resolution_clock::now();
+                std::expected<std::vector<Tool>, McpError> result;
+                co_await client.listTools(result).wait();
+                auto end = high_resolution_clock::now();
+                if (result) {
+                    double latencyMs = duration_cast<microseconds>(end - start).count() / 1000.0;
+                    toolsStats.addLatency(latencyMs);
+                }
+            }
+
+            {
+                auto start = high_resolution_clock::now();
+                std::expected<std::vector<Resource>, McpError> result;
+                co_await client.listResources(result).wait();
+                auto end = high_resolution_clock::now();
+                if (result) {
+                    double latencyMs = duration_cast<microseconds>(end - start).count() / 1000.0;
+                    resourcesStats.addLatency(latencyMs);
+                }
+            }
+
+            {
+                auto start = high_resolution_clock::now();
+                std::expected<std::vector<Prompt>, McpError> result;
+                co_await client.listPrompts(result).wait();
+                auto end = high_resolution_clock::now();
+                if (result) {
+                    double latencyMs = duration_cast<microseconds>(end - start).count() / 1000.0;
+                    promptsStats.addLatency(latencyMs);
+                }
+            }
+
+            if ((i + 1) % 100 == 0) {
+                std::cout << "Progress: " << (i + 1) << "/" << iterations << "\r" << std::flush;
+            }
+        }
+        toolsStats.printReport("HTTP List Tools");
+        resourcesStats.printReport("HTTP List Resources");
+        promptsStats.printReport("HTTP List Prompts");
+    }
+
+    // 断开连接
+    co_await client.disconnect();
+    exitCode = 0;
+    co_return;
+}
+
 int main(int argc, char* argv[]) {
     std::string url = "http://127.0.0.1:8080/mcp";
     if (argc > 1) {
@@ -254,6 +271,8 @@ int main(int argc, char* argv[]) {
     std::cout << "Server URL: " << url << std::endl;
     std::cout << "Make sure the HTTP MCP server is running!" << std::endl;
 
+    int exitCode = 0;
+
     // 创建Runtime
     Runtime runtime(LoadBalanceStrategy::ROUND_ROBIN, 1, 1);
     runtime.start();
@@ -261,39 +280,16 @@ int main(int argc, char* argv[]) {
     // 创建客户端
     McpHttpClient client(runtime);
 
-    // 连接到服务器
-    std::cout << "\nConnecting to server..." << std::endl;
-    auto connectResult = client.connect(url);
-    if (!connectResult) {
-        std::cerr << "Failed to connect: " << connectResult.error().toString() << std::endl;
-        runtime.stop();
-        return 1;
-    }
+    // 在IO调度器上运行测试协程
+    auto* scheduler = runtime.getNextIOScheduler();
+    scheduler->spawn(runBenchmark(client, url, exitCode));
 
-    // 初始化
-    std::cout << "Initializing client..." << std::endl;
-    auto initResult = client.initialize("benchmark-http-client", "1.0.0");
-    if (!initResult) {
-        std::cerr << "Failed to initialize: " << initResult.error().toString() << std::endl;
-        runtime.stop();
-        return 1;
-    }
-    std::cout << "Connected to: " << client.getServerInfo().name << std::endl;
+    // 等待测试完成
+    std::this_thread::sleep_for(std::chrono::seconds(60));
 
-    // 运行各项性能测试
-    const size_t iterations = 1000;
-
-    benchmarkPing(client, iterations);
-    benchmarkToolCall(client, iterations);
-    benchmarkResourceRead(client, iterations);
-    benchmarkListOperations(client, iterations);
-
-    // 断开连接
-    client.disconnect();
     runtime.stop();
 
     std::cout << "\n=== Benchmark Complete ===" << std::endl;
-    std::cout << "\nNote: Save these results to docs/B2-HTTP性能测试.md" << std::endl;
 
-    return 0;
+    return exitCode;
 }

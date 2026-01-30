@@ -96,44 +96,37 @@ private:
     double m_maxLatencyMs = 0.0;
 };
 
-// 工作线程函数
-void workerThread(const std::string& url, size_t requestsPerThread, ConcurrentStats& stats, std::atomic<bool>& ready) {
-    // 等待所有线程准备就绪
-    while (!ready.load()) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-
-    // 创建Runtime和客户端
-    Runtime runtime(LoadBalanceStrategy::ROUND_ROBIN, 1, 1);
-    runtime.start();
-
-    McpHttpClient client(runtime);
-
+// 工作协程
+Coroutine workerCoroutine(McpHttpClient& client, const std::string& url,
+                          size_t requestsPerWorker, ConcurrentStats& stats,
+                          std::atomic<int>& completedWorkers) {
     // 连接并初始化
-    auto connectResult = client.connect(url);
+    auto connectResult = co_await client.connect(url);
     if (!connectResult) {
         stats.addError();
-        runtime.stop();
-        return;
+        completedWorkers++;
+        co_return;
     }
 
-    auto initResult = client.initialize("concurrent-client", "1.0.0");
+    std::expected<void, McpError> initResult;
+    co_await client.initialize("concurrent-client", "1.0.0", initResult).wait();
     if (!initResult) {
         stats.addError();
-        runtime.stop();
-        return;
+        completedWorkers++;
+        co_return;
     }
 
     // 执行请求
-    for (size_t i = 0; i < requestsPerThread; ++i) {
+    for (size_t i = 0; i < requestsPerWorker; ++i) {
         Json args;
         args["message"] = "Concurrent test " + std::to_string(i);
 
         auto start = high_resolution_clock::now();
-        auto result = client.callTool("echo", args);
+        std::expected<Json, McpError> callResult;
+        co_await client.callTool("echo", args, callResult).wait();
         auto end = high_resolution_clock::now();
 
-        if (result) {
+        if (callResult) {
             double latencyMs = duration_cast<microseconds>(end - start).count() / 1000.0;
             stats.addLatency(latencyMs);
         } else {
@@ -141,41 +134,50 @@ void workerThread(const std::string& url, size_t requestsPerThread, ConcurrentSt
         }
     }
 
-    client.disconnect();
-    runtime.stop();
+    co_await client.disconnect();
+    completedWorkers++;
+    co_return;
 }
 
 // 并发测试
-void runConcurrentTest(const std::string& url, size_t numThreads, size_t requestsPerThread) {
+void runConcurrentTest(const std::string& url, size_t numWorkers, size_t requestsPerWorker) {
     std::cout << "\n=== Concurrent Test ===" << std::endl;
-    std::cout << "Threads:           " << numThreads << std::endl;
-    std::cout << "Requests/Thread:   " << requestsPerThread << std::endl;
-    std::cout << "Total Requests:    " << (numThreads * requestsPerThread) << std::endl;
+    std::cout << "Workers:           " << numWorkers << std::endl;
+    std::cout << "Requests/Worker:   " << requestsPerWorker << std::endl;
+    std::cout << "Total Requests:    " << (numWorkers * requestsPerWorker) << std::endl;
     std::cout << "\nStarting test..." << std::endl;
 
     ConcurrentStats stats;
-    std::vector<std::thread> threads;
-    std::atomic<bool> ready(false);
+    std::atomic<int> completedWorkers(0);
 
-    // 创建所有线程
-    for (size_t i = 0; i < numThreads; ++i) {
-        threads.emplace_back(workerThread, url, requestsPerThread, std::ref(stats), std::ref(ready));
+    // 创建Runtime
+    Runtime runtime(LoadBalanceStrategy::ROUND_ROBIN, 4, 2);
+    runtime.start();
+
+    // 创建客户端和协程
+    std::vector<std::unique_ptr<McpHttpClient>> clients;
+    for (size_t i = 0; i < numWorkers; ++i) {
+        clients.push_back(std::make_unique<McpHttpClient>(runtime));
     }
-
-    // 等待所有线程准备就绪
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     // 开始测试
     auto testStart = high_resolution_clock::now();
-    ready.store(true);
 
-    // 等待所有线程完成
-    for (auto& thread : threads) {
-        thread.join();
+    // 启动所有工作协程
+    for (size_t i = 0; i < numWorkers; ++i) {
+        auto* scheduler = runtime.getNextIOScheduler();
+        scheduler->spawn(workerCoroutine(*clients[i], url, requestsPerWorker, stats, completedWorkers));
     }
-    auto testEnd = high_resolution_clock::now();
 
+    // 等待所有工作协程完成
+    while (completedWorkers.load() < static_cast<int>(numWorkers)) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+
+    auto testEnd = high_resolution_clock::now();
     double totalTestTimeMs = duration_cast<milliseconds>(testEnd - testStart).count();
+
+    runtime.stop();
 
     // 打印报告
     stats.printReport("Concurrent Tool Call", totalTestTimeMs);
@@ -187,11 +189,11 @@ void runScalabilityTest(const std::string& url) {
     std::cout << "Testing with increasing concurrency levels..." << std::endl;
 
     std::vector<size_t> concurrencyLevels = {1, 2, 4, 8, 16, 32};
-    const size_t requestsPerThread = 100;
+    const size_t requestsPerWorker = 100;
 
-    for (size_t numThreads : concurrencyLevels) {
-        std::cout << "\n--- Testing with " << numThreads << " threads ---" << std::endl;
-        runConcurrentTest(url, numThreads, requestsPerThread);
+    for (size_t numWorkers : concurrencyLevels) {
+        std::cout << "\n--- Testing with " << numWorkers << " workers ---" << std::endl;
+        runConcurrentTest(url, numWorkers, requestsPerWorker);
 
         // 短暂休息，让服务器恢复
         std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -217,8 +219,8 @@ void printSystemInfo() {
 
 int main(int argc, char* argv[]) {
     std::string url = "http://127.0.0.1:8080/mcp";
-    size_t numThreads = 10;
-    size_t requestsPerThread = 100;
+    size_t numWorkers = 10;
+    size_t requestsPerWorker = 100;
     bool scalabilityTest = false;
 
     // 解析命令行参数
@@ -226,18 +228,18 @@ int main(int argc, char* argv[]) {
         std::string arg = argv[i];
         if (arg == "--url" && i + 1 < argc) {
             url = argv[++i];
-        } else if (arg == "--threads" && i + 1 < argc) {
-            numThreads = std::stoul(argv[++i]);
+        } else if (arg == "--workers" && i + 1 < argc) {
+            numWorkers = std::stoul(argv[++i]);
         } else if (arg == "--requests" && i + 1 < argc) {
-            requestsPerThread = std::stoul(argv[++i]);
+            requestsPerWorker = std::stoul(argv[++i]);
         } else if (arg == "--scalability") {
             scalabilityTest = true;
         } else if (arg == "--help") {
             std::cout << "Usage: " << argv[0] << " [options]" << std::endl;
             std::cout << "Options:" << std::endl;
             std::cout << "  --url <url>          Server URL (default: http://127.0.0.1:8080/mcp)" << std::endl;
-            std::cout << "  --threads <n>        Number of concurrent threads (default: 10)" << std::endl;
-            std::cout << "  --requests <n>       Requests per thread (default: 100)" << std::endl;
+            std::cout << "  --workers <n>        Number of concurrent workers (default: 10)" << std::endl;
+            std::cout << "  --requests <n>       Requests per worker (default: 100)" << std::endl;
             std::cout << "  --scalability        Run scalability test with increasing concurrency" << std::endl;
             std::cout << "  --help               Show this help message" << std::endl;
             return 0;
@@ -253,11 +255,10 @@ int main(int argc, char* argv[]) {
     if (scalabilityTest) {
         runScalabilityTest(url);
     } else {
-        runConcurrentTest(url, numThreads, requestsPerThread);
+        runConcurrentTest(url, numWorkers, requestsPerWorker);
     }
 
     std::cout << "\n=== Benchmark Complete ===" << std::endl;
-    std::cout << "\nNote: Save these results to docs/B3-并发请求压测.md" << std::endl;
 
     return 0;
 }

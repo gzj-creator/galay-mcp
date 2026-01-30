@@ -1,7 +1,6 @@
 /**
- * @file test_http_server.cc
+ * @file T4-HttpServer.cc
  * @brief HTTP MCP Server 测试示例
- * @details 演示如何使用 McpHttpServer 创建一个基于HTTP的MCP服务器
  */
 
 #include "galay-mcp/server/McpHttpServer.h"
@@ -11,11 +10,10 @@
 #include <signal.h>
 
 using namespace galay::mcp;
+using namespace galay::kernel;
 
-// 全局服务器指针，用于信号处理
 McpHttpServer* g_server = nullptr;
 
-// 信号处理函数
 void signalHandler(int signum) {
     std::cout << "\nReceived signal " << signum << ", stopping server...\n";
     if (g_server) {
@@ -23,15 +21,13 @@ void signalHandler(int signum) {
     }
 }
 
-// Echo工具：返回输入的内容（协程）
-galay::kernel::Coroutine echoTool(const Json& arguments, std::expected<Json, McpError>& result) {
+// Echo工具（协程）
+Coroutine echoTool(const Json& arguments, std::expected<Json, McpError>& result) {
     try {
         std::string message = arguments.value("message", "");
-
         Json res;
         res["echo"] = message;
         res["length"] = message.length();
-
         result = res;
     } catch (const std::exception& e) {
         result = std::unexpected(McpError::invalidParams(e.what()));
@@ -39,15 +35,13 @@ galay::kernel::Coroutine echoTool(const Json& arguments, std::expected<Json, Mcp
     co_return;
 }
 
-// 加法工具：计算两个数的和（协程）
-galay::kernel::Coroutine addTool(const Json& arguments, std::expected<Json, McpError>& result) {
+// 加法工具（协程）
+Coroutine addTool(const Json& arguments, std::expected<Json, McpError>& result) {
     try {
         double a = arguments.value("a", 0.0);
         double b = arguments.value("b", 0.0);
-
         Json res;
         res["sum"] = a + b;
-
         result = res;
     } catch (const std::exception& e) {
         result = std::unexpected(McpError::invalidParams(e.what()));
@@ -55,8 +49,8 @@ galay::kernel::Coroutine addTool(const Json& arguments, std::expected<Json, McpE
     co_return;
 }
 
-// 资源读取器：返回示例文本（协程）
-galay::kernel::Coroutine readExampleResource(const std::string& uri, std::expected<std::string, McpError>& result) {
+// 资源读取器（协程）
+Coroutine readExampleResource(const std::string& uri, std::expected<std::string, McpError>& result) {
     if (uri == "example://hello") {
         result = "Hello from MCP HTTP Server!";
     } else if (uri == "example://info") {
@@ -67,8 +61,8 @@ galay::kernel::Coroutine readExampleResource(const std::string& uri, std::expect
     co_return;
 }
 
-// 提示获取器：返回示例提示（协程）
-galay::kernel::Coroutine getExamplePrompt(const std::string& name, const Json& arguments, std::expected<Json, McpError>& result) {
+// 提示获取器（协程）
+Coroutine getExamplePrompt(const std::string& name, const Json& arguments, std::expected<Json, McpError>& result) {
     if (name == "greeting") {
         std::string userName = arguments.value("name", "User");
 
@@ -84,7 +78,6 @@ galay::kernel::Coroutine getExamplePrompt(const std::string& name, const Json& a
         messages.push_back(message);
 
         res["messages"] = messages;
-
         result = res;
     } else {
         result = std::unexpected(McpError::promptNotFound(name));
@@ -93,7 +86,6 @@ galay::kernel::Coroutine getExamplePrompt(const std::string& name, const Json& a
 }
 
 int main(int argc, char* argv[]) {
-    // 解析命令行参数
     std::string host = "0.0.0.0";
     int port = 8080;
 
@@ -112,18 +104,14 @@ int main(int argc, char* argv[]) {
     std::cout << "========================================\n\n";
 
     try {
-        // 创建服务器
         McpHttpServer server(host, port);
         g_server = &server;
 
-        // 注册信号处理
         signal(SIGINT, signalHandler);
         signal(SIGTERM, signalHandler);
 
-        // 设置服务器信息
         server.setServerInfo("test-http-mcp-server", "1.0.0");
 
-        // 添加工具 - 使用 SchemaBuilder 简化代码
         auto echoSchema = SchemaBuilder()
             .addString("message", "The message to echo", true)
             .build();
@@ -135,7 +123,6 @@ int main(int argc, char* argv[]) {
             .build();
         server.addTool("add", "Add two numbers", addSchema, addTool);
 
-        // 添加资源
         server.addResource("example://hello", "Hello Resource",
                           "A simple hello message", "text/plain",
                           readExampleResource);
@@ -144,7 +131,6 @@ int main(int argc, char* argv[]) {
                           "Information about the server", "text/plain",
                           readExampleResource);
 
-        // 添加提示 - 使用 PromptArgumentBuilder 简化代码
         auto promptArgs = PromptArgumentBuilder()
             .addArgument("name", "User's name", false)
             .build();
@@ -160,7 +146,6 @@ int main(int argc, char* argv[]) {
         std::cout << "Press Ctrl+C to stop\n";
         std::cout << "========================================\n\n";
 
-        // 启动服务器（阻塞）
         server.start();
 
         std::cout << "\nServer stopped.\n";

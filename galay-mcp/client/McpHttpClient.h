@@ -5,26 +5,22 @@
 #include "../common/McpError.h"
 #include "galay-http/kernel/http/HttpClient.h"
 #include "galay-kernel/kernel/Runtime.h"
+#include "galay-kernel/kernel/Coroutine.h"
 #include <atomic>
-#include <mutex>
 #include <string>
-#include <map>
 #include <memory>
 
 namespace galay {
 namespace mcp {
 
 /**
- * @brief 基于HTTP的MCP客户端
+ * @brief 基于HTTP的MCP客户端（异步接口）
  *
  * 该类实现了MCP协议的客户端，通过HTTP POST请求发送JSON-RPC消息。
+ * 需要co_await的接口返回Coroutine，简单接口直接返回结果。
  */
 class McpHttpClient {
 public:
-    /**
-     * @brief 构造函数
-     * @param runtime Runtime实例引用
-     */
     explicit McpHttpClient(kernel::Runtime& runtime);
     ~McpHttpClient();
 
@@ -35,130 +31,87 @@ public:
     McpHttpClient& operator=(McpHttpClient&&) = delete;
 
     /**
-     * @brief 连接到服务器
-     * @param url 服务器URL (例如: http://localhost:8080/mcp)
-     * @return 成功返回void，失败返回错误信息
+     * @brief 连接到服务器（返回等待体）
      */
-    std::expected<void, McpError> connect(const std::string& url);
+    async::ConnectAwaitable connect(const std::string& url);
 
     /**
-     * @brief 初始化连接
-     * @param clientName 客户端名称
-     * @param clientVersion 客户端版本
-     * @return 成功返回void，失败返回错误信息
+     * @brief 初始化连接（协程，内部需要co_await发送请求）
      */
-    std::expected<void, McpError> initialize(const std::string& clientName,
-                                             const std::string& clientVersion);
+    kernel::Coroutine initialize(std::string clientName,
+                                  std::string clientVersion,
+                                  std::expected<void, McpError>& result);
 
     /**
-     * @brief 调用工具
-     * @param toolName 工具名称
-     * @param arguments 工具参数
-     * @return 成功返回工具执行结果，失败返回错误信息
+     * @brief 调用工具（协程）
      */
-    std::expected<Json, McpError> callTool(const std::string& toolName,
-                                           const Json& arguments);
+    kernel::Coroutine callTool(std::string toolName,
+                                Json arguments,
+                                std::expected<Json, McpError>& result);
 
     /**
-     * @brief 获取工具列表
-     * @return 成功返回工具列表，失败返回错误信息
+     * @brief 获取工具列表（协程）
      */
-    std::expected<std::vector<Tool>, McpError> listTools();
+    kernel::Coroutine listTools(std::expected<std::vector<Tool>, McpError>& result);
 
     /**
-     * @brief 获取资源列表
-     * @return 成功返回资源列表，失败返回错误信息
+     * @brief 获取资源列表（协程）
      */
-    std::expected<std::vector<Resource>, McpError> listResources();
+    kernel::Coroutine listResources(std::expected<std::vector<Resource>, McpError>& result);
 
     /**
-     * @brief 读取资源
-     * @param uri 资源URI
-     * @return 成功返回资源内容，失败返回错误信息
+     * @brief 读取资源（协程）
      */
-    std::expected<std::string, McpError> readResource(const std::string& uri);
+    kernel::Coroutine readResource(std::string uri,
+                                    std::expected<std::string, McpError>& result);
 
     /**
-     * @brief 获取提示列表
-     * @return 成功返回提示列表，失败返回错误信息
+     * @brief 获取提示列表（协程）
      */
-    std::expected<std::vector<Prompt>, McpError> listPrompts();
+    kernel::Coroutine listPrompts(std::expected<std::vector<Prompt>, McpError>& result);
 
     /**
-     * @brief 获取提示
-     * @param name 提示名称
-     * @param arguments 提示参数
-     * @return 成功返回提示内容，失败返回错误信息
+     * @brief 获取提示（协程）
      */
-    std::expected<Json, McpError> getPrompt(const std::string& name,
-                                            const Json& arguments);
+    kernel::Coroutine getPrompt(std::string name,
+                                 Json arguments,
+                                 std::expected<Json, McpError>& result);
 
     /**
-     * @brief 发送ping请求
-     * @return 成功返回void，失败返回错误信息
+     * @brief 发送ping请求（协程）
      */
-    std::expected<void, McpError> ping();
+    kernel::Coroutine ping(std::expected<void, McpError>& result);
 
     /**
-     * @brief 断开连接
+     * @brief 断开连接（返回等待体）
      */
-    void disconnect();
+    async::CloseAwaitable disconnect();
 
-    /**
-     * @brief 检查是否已连接
-     */
-    bool isConnected() const;
-
-    /**
-     * @brief 检查是否已初始化
-     */
-    bool isInitialized() const;
-
-    /**
-     * @brief 获取服务器信息
-     */
-    const ServerInfo& getServerInfo() const;
-
-    /**
-     * @brief 获取服务器能力
-     */
-    const ServerCapabilities& getServerCapabilities() const;
+    // 简单的同步接口
+    bool isConnected() const { return m_connected.load(); }
+    bool isInitialized() const { return m_initialized.load(); }
+    const ServerInfo& getServerInfo() const { return m_serverInfo; }
+    const ServerCapabilities& getServerCapabilities() const { return m_serverCapabilities; }
 
 private:
-    // 发送请求并等待响应
-    std::expected<Json, McpError> sendRequest(const std::string& method,
-                                              const Json& params);
+    // 发送请求（协程）
+    kernel::Coroutine sendRequest(std::string method,
+                                   Json params,
+                                   std::expected<Json, McpError>& result);
 
-    // 生成请求ID
     int64_t generateRequestId();
 
 private:
-    // Runtime引用
     kernel::Runtime& m_runtime;
-
-    // HTTP客户端
     std::unique_ptr<http::HttpClient> m_httpClient;
-
-    // 服务器URL
     std::string m_serverUrl;
-
-    // 客户端信息
     std::string m_clientName;
     std::string m_clientVersion;
-
-    // 服务器信息
     ServerInfo m_serverInfo;
     ServerCapabilities m_serverCapabilities;
-
-    // 连接状态
-    std::atomic<bool> m_connected;
-    std::atomic<bool> m_initialized;
-
-    // 请求ID计数器
-    std::atomic<int64_t> m_requestIdCounter;
-
-    // 互斥锁
-    std::mutex m_requestMutex;
+    std::atomic<bool> m_connected{false};
+    std::atomic<bool> m_initialized{false};
+    std::atomic<int64_t> m_requestIdCounter{0};
 };
 
 } // namespace mcp

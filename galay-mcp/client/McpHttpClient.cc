@@ -1,383 +1,357 @@
 #include "McpHttpClient.h"
-#include <sstream>
-#include <stdexcept>
-#include <future>
-#include <chrono>
-#include <iostream>
 
 namespace galay {
 namespace mcp {
 
 McpHttpClient::McpHttpClient(kernel::Runtime& runtime)
-    : m_runtime(runtime)
-    , m_httpClient(std::make_unique<http::HttpClient>())
-    , m_connected(false)
-    , m_initialized(false)
-    , m_requestIdCounter(0) {
+    : m_runtime(runtime) {
+    m_httpClient = std::make_unique<http::HttpClient>();
 }
 
 McpHttpClient::~McpHttpClient() {
-    disconnect();
 }
 
-std::expected<void, McpError> McpHttpClient::connect(const std::string& url) {
-    if (m_connected) {
-        return std::unexpected(McpError::connectionError("Already connected"));
-    }
-
-    // 保存URL的副本
+async::ConnectAwaitable McpHttpClient::connect(const std::string& url) {
     m_serverUrl = url;
-
-    // 使用协程连接到服务器
-    std::promise<std::expected<void, McpError>> promise;
-    auto future = promise.get_future();
-
-    auto* scheduler = m_runtime.getNextIOScheduler();
-    if (!scheduler) {
-        return std::unexpected(McpError::connectionError("No IO scheduler available"));
-    }
-
-    scheduler->spawn([this, &promise]() -> kernel::Coroutine {
-        auto result = co_await m_httpClient->connect(m_serverUrl);
-        if (!result) {
-            promise.set_value(std::unexpected(
-                McpError::connectionError(result.error().message())));
-            co_return;
-        }
-
-        m_connected = true;
-        promise.set_value({});
-        co_return;
-    }());
-
-    // 等待连接完成
-    auto status = future.wait_for(std::chrono::seconds(10));
-    if (status == std::future_status::timeout) {
-        return std::unexpected(McpError::connectionError("Connection timeout"));
-    }
-
-    return future.get();
+    return m_httpClient->connect(url);
 }
 
-std::expected<void, McpError> McpHttpClient::initialize(const std::string& clientName,
-                                                         const std::string& clientVersion) {
-    if (!m_connected) {
-        return std::unexpected(McpError::connectionError("Not connected"));
-    }
-
-    if (m_initialized) {
-        return std::unexpected(McpError::invalidRequest("Already initialized"));
-    }
-
-    m_clientName = clientName;
-    m_clientVersion = clientVersion;
+kernel::Coroutine McpHttpClient::initialize(std::string clientName,
+                                             std::string clientVersion,
+                                             std::expected<void, McpError>& result) {
+    m_clientName = std::move(clientName);
+    m_clientVersion = std::move(clientVersion);
 
     // 构建初始化请求
     InitializeParams params;
     params.protocolVersion = MCP_VERSION;
-    params.clientInfo.name = clientName;
-    params.clientInfo.version = clientVersion;
+    params.clientInfo.name = m_clientName;
+    params.clientInfo.version = m_clientVersion;
     params.capabilities = Json::object();
 
-    auto result = sendRequest(Methods::INITIALIZE, params.toJson());
-    if (!result) {
-        return std::unexpected(result.error());
+    std::expected<Json, McpError> response;
+    co_await sendRequest(Methods::INITIALIZE, params.toJson(), response).wait();
+
+    if (!response) {
+        result = std::unexpected(response.error());
+        co_return;
     }
 
     try {
-        InitializeResult initResult = InitializeResult::fromJson(result.value());
+        InitializeResult initResult = InitializeResult::fromJson(response.value());
         m_serverInfo = initResult.serverInfo;
         m_serverCapabilities = initResult.capabilities;
         m_initialized = true;
-        return {};
+        m_connected = true;
+        result = {};
     } catch (const std::exception& e) {
-        return std::unexpected(McpError::parseError(e.what()));
+        result = std::unexpected(McpError::initializationFailed(e.what()));
     }
+
+    co_return;
 }
 
-std::expected<Json, McpError> McpHttpClient::callTool(const std::string& toolName,
-                                                       const Json& arguments) {
+kernel::Coroutine McpHttpClient::callTool(std::string toolName,
+                                           Json arguments,
+                                           std::expected<Json, McpError>& result) {
     if (!m_initialized) {
-        return std::unexpected(McpError::invalidRequest("Not initialized"));
+        result = std::unexpected(McpError::notInitialized());
+        co_return;
     }
 
     ToolCallParams params;
-    params.name = toolName;
-    params.arguments = arguments;
+    params.name = std::move(toolName);
+    params.arguments = std::move(arguments);
 
-    auto result = sendRequest(Methods::TOOLS_CALL, params.toJson());
-    if (!result) {
-        return std::unexpected(result.error());
+    std::expected<Json, McpError> response;
+    co_await sendRequest(Methods::TOOLS_CALL, params.toJson(), response).wait();
+
+    if (!response) {
+        result = std::unexpected(response.error());
+        co_return;
     }
 
     try {
-        ToolCallResult callResult = ToolCallResult::fromJson(result.value());
+        ToolCallResult callResult = ToolCallResult::fromJson(response.value());
         if (callResult.isError) {
-            return std::unexpected(McpError::toolError("Tool execution failed"));
+            result = std::unexpected(McpError::toolExecutionFailed("Tool returned error"));
+            co_return;
         }
-
         if (callResult.content.empty()) {
-            return Json::object();
+            result = Json::object();
+            co_return;
         }
-
-        // 返回第一个内容项的文本
-        return Json::parse(callResult.content[0].text);
+        if (callResult.content[0].type == ContentType::Text) {
+            result = Json::parse(callResult.content[0].text);
+        } else {
+            result = Json::object();
+        }
     } catch (const std::exception& e) {
-        return std::unexpected(McpError::parseError(e.what()));
+        result = std::unexpected(McpError::parseError(e.what()));
     }
+
+    co_return;
 }
 
-std::expected<std::vector<Tool>, McpError> McpHttpClient::listTools() {
+kernel::Coroutine McpHttpClient::listTools(std::expected<std::vector<Tool>, McpError>& result) {
     if (!m_initialized) {
-        return std::unexpected(McpError::invalidRequest("Not initialized"));
+        result = std::unexpected(McpError::notInitialized());
+        co_return;
     }
 
-    auto result = sendRequest(Methods::TOOLS_LIST, Json::object());
-    if (!result) {
-        return std::unexpected(result.error());
+    std::expected<Json, McpError> response;
+    co_await sendRequest(Methods::TOOLS_LIST, Json::object(), response).wait();
+
+    if (!response) {
+        result = std::unexpected(response.error());
+        co_return;
     }
 
     try {
         std::vector<Tool> tools;
-        Json toolsArray = result.value()["tools"];
-        for (const auto& toolJson : toolsArray) {
-            tools.push_back(Tool::fromJson(toolJson));
+        if (response.value().contains("tools")) {
+            for (const auto& item : response.value()["tools"]) {
+                tools.push_back(Tool::fromJson(item));
+            }
         }
-        return tools;
+        result = std::move(tools);
     } catch (const std::exception& e) {
-        return std::unexpected(McpError::parseError(e.what()));
+        result = std::unexpected(McpError::parseError(e.what()));
     }
+
+    co_return;
 }
 
-std::expected<std::vector<Resource>, McpError> McpHttpClient::listResources() {
+kernel::Coroutine McpHttpClient::listResources(std::expected<std::vector<Resource>, McpError>& result) {
     if (!m_initialized) {
-        return std::unexpected(McpError::invalidRequest("Not initialized"));
+        result = std::unexpected(McpError::notInitialized());
+        co_return;
     }
 
-    auto result = sendRequest(Methods::RESOURCES_LIST, Json::object());
-    if (!result) {
-        return std::unexpected(result.error());
+    std::expected<Json, McpError> response;
+    co_await sendRequest(Methods::RESOURCES_LIST, Json::object(), response).wait();
+
+    if (!response) {
+        result = std::unexpected(response.error());
+        co_return;
     }
 
     try {
         std::vector<Resource> resources;
-        Json resourcesArray = result.value()["resources"];
-        for (const auto& resourceJson : resourcesArray) {
-            resources.push_back(Resource::fromJson(resourceJson));
+        if (response.value().contains("resources")) {
+            for (const auto& item : response.value()["resources"]) {
+                resources.push_back(Resource::fromJson(item));
+            }
         }
-        return resources;
+        result = std::move(resources);
     } catch (const std::exception& e) {
-        return std::unexpected(McpError::parseError(e.what()));
+        result = std::unexpected(McpError::parseError(e.what()));
     }
+
+    co_return;
 }
 
-std::expected<std::string, McpError> McpHttpClient::readResource(const std::string& uri) {
+kernel::Coroutine McpHttpClient::readResource(std::string uri,
+                                               std::expected<std::string, McpError>& result) {
     if (!m_initialized) {
-        return std::unexpected(McpError::invalidRequest("Not initialized"));
+        result = std::unexpected(McpError::notInitialized());
+        co_return;
     }
 
     Json params;
-    params["uri"] = uri;
+    params["uri"] = std::move(uri);
 
-    auto result = sendRequest(Methods::RESOURCES_READ, params);
-    if (!result) {
-        return std::unexpected(result.error());
+    std::expected<Json, McpError> response;
+    co_await sendRequest(Methods::RESOURCES_READ, params, response).wait();
+
+    if (!response) {
+        result = std::unexpected(response.error());
+        co_return;
     }
 
     try {
-        Json contents = result.value()["contents"];
-        if (contents.empty()) {
-            return "";
+        if (response.value().contains("contents") && response.value()["contents"].is_array()) {
+            auto contents = response.value()["contents"];
+            if (!contents.empty()) {
+                Content content = Content::fromJson(contents[0]);
+                if (content.type == ContentType::Text) {
+                    result = content.text;
+                    co_return;
+                }
+            }
         }
-
-        Content content = Content::fromJson(contents[0]);
-        return content.text;
+        result = "";
     } catch (const std::exception& e) {
-        return std::unexpected(McpError::parseError(e.what()));
+        result = std::unexpected(McpError::parseError(e.what()));
     }
+
+    co_return;
 }
 
-std::expected<std::vector<Prompt>, McpError> McpHttpClient::listPrompts() {
+kernel::Coroutine McpHttpClient::listPrompts(std::expected<std::vector<Prompt>, McpError>& result) {
     if (!m_initialized) {
-        return std::unexpected(McpError::invalidRequest("Not initialized"));
+        result = std::unexpected(McpError::notInitialized());
+        co_return;
     }
 
-    auto result = sendRequest(Methods::PROMPTS_LIST, Json::object());
-    if (!result) {
-        return std::unexpected(result.error());
+    std::expected<Json, McpError> response;
+    co_await sendRequest(Methods::PROMPTS_LIST, Json::object(), response).wait();
+
+    if (!response) {
+        result = std::unexpected(response.error());
+        co_return;
     }
 
     try {
         std::vector<Prompt> prompts;
-        Json promptsArray = result.value()["prompts"];
-        for (const auto& promptJson : promptsArray) {
-            prompts.push_back(Prompt::fromJson(promptJson));
+        if (response.value().contains("prompts")) {
+            for (const auto& item : response.value()["prompts"]) {
+                prompts.push_back(Prompt::fromJson(item));
+            }
         }
-        return prompts;
+        result = std::move(prompts);
     } catch (const std::exception& e) {
-        return std::unexpected(McpError::parseError(e.what()));
+        result = std::unexpected(McpError::parseError(e.what()));
     }
+
+    co_return;
 }
 
-std::expected<Json, McpError> McpHttpClient::getPrompt(const std::string& name,
-                                                        const Json& arguments) {
+kernel::Coroutine McpHttpClient::getPrompt(std::string name,
+                                            Json arguments,
+                                            std::expected<Json, McpError>& result) {
     if (!m_initialized) {
-        return std::unexpected(McpError::invalidRequest("Not initialized"));
+        result = std::unexpected(McpError::notInitialized());
+        co_return;
     }
 
     Json params;
-    params["name"] = name;
-    if (!arguments.empty()) {
-        params["arguments"] = arguments;
+    params["name"] = std::move(name);
+    if (!arguments.is_null()) {
+        params["arguments"] = std::move(arguments);
     }
 
-    return sendRequest(Methods::PROMPTS_GET, params);
+    std::expected<Json, McpError> response;
+    co_await sendRequest(Methods::PROMPTS_GET, params, response).wait();
+
+    if (!response) {
+        result = std::unexpected(response.error());
+        co_return;
+    }
+
+    result = response.value();
+    co_return;
 }
 
-std::expected<void, McpError> McpHttpClient::ping() {
-    if (!m_connected) {
-        return std::unexpected(McpError::connectionError("Not connected"));
+kernel::Coroutine McpHttpClient::ping(std::expected<void, McpError>& result) {
+    if (!m_initialized) {
+        result = std::unexpected(McpError::notInitialized());
+        co_return;
     }
 
-    auto result = sendRequest(Methods::PING, Json::object());
-    if (!result) {
-        return std::unexpected(result.error());
+    std::expected<Json, McpError> response;
+    co_await sendRequest(Methods::PING, Json::object(), response).wait();
+
+    if (!response) {
+        result = std::unexpected(response.error());
+        co_return;
     }
 
-    return {};
+    result = {};
+    co_return;
 }
 
-void McpHttpClient::disconnect() {
-    if (!m_connected) {
-        return;
-    }
-
-    // 使用协程关闭连接
-    auto* scheduler = m_runtime.getNextIOScheduler();
-    if (scheduler) {
-        scheduler->spawn([this]() -> kernel::Coroutine {
-            co_await m_httpClient->close();
-            co_return;
-        }());
-    }
-
-    m_connected = false;
+async::CloseAwaitable McpHttpClient::disconnect() {
     m_initialized = false;
+    m_connected = false;
+    return m_httpClient->close();
 }
 
-bool McpHttpClient::isConnected() const {
-    return m_connected;
-}
-
-bool McpHttpClient::isInitialized() const {
-    return m_initialized;
-}
-
-const ServerInfo& McpHttpClient::getServerInfo() const {
-    return m_serverInfo;
-}
-
-const ServerCapabilities& McpHttpClient::getServerCapabilities() const {
-    return m_serverCapabilities;
-}
-
-std::expected<Json, McpError> McpHttpClient::sendRequest(const std::string& method,
-                                                          const Json& params) {
-    std::lock_guard<std::mutex> lock(m_requestMutex);
-
+kernel::Coroutine McpHttpClient::sendRequest(std::string method,
+                                              Json params,
+                                              std::expected<Json, McpError>& result) {
     // 构建JSON-RPC请求
     JsonRpcRequest request;
     request.id = generateRequestId();
-    request.method = method;
-    request.params = params;
+    request.method = std::move(method);
+    request.params = std::move(params);
 
-    Json requestJson = request.toJson();
-    std::string requestBody = requestJson.dump();
+    std::string requestBody = request.toJson().dump();
 
-    // 使用协程发送请求
-    std::promise<std::expected<Json, McpError>> promise;
-    auto future = promise.get_future();
-
-    auto* scheduler = m_runtime.getNextIOScheduler();
-    if (!scheduler) {
-        return std::unexpected(McpError::connectionError("No IO scheduler available"));
-    }
-
-    scheduler->spawn([this, requestBody, &promise]() -> kernel::Coroutine {
-        // 获取awaitable引用，然后在循环中重复co_await
-        auto& awaitable = m_httpClient->post(
-            m_httpClient->url().path,
-            requestBody,
-            "application/json",
-            {
-                {"Host", m_httpClient->url().host + ":" + std::to_string(m_httpClient->url().port)},
-                {"Content-Type", "application/json"}
-            }
-        );
-
-        // 循环等待直到完成
-        while (true) {
-            auto result = co_await awaitable;
-
-            if (!result) {
-                promise.set_value(std::unexpected(
-                    McpError::connectionError(result.error().message())));
-                co_return;
-            }
-
-            if (!result.value()) {
-                // 请求未完成，继续等待
-                continue;
-            }
-
-            auto response = result.value().value();
-
-            // 检查HTTP状态码
-            if (response.header().code() != http::HttpStatusCode::OK_200) {
-                promise.set_value(std::unexpected(
-                    McpError::connectionError("HTTP error: " +
-                        std::to_string(static_cast<int>(response.header().code())))));
-                co_return;
-            }
-
-            // 解析响应
-            try {
-                std::string responseBody = response.getBodyStr();
-                Json responseJson = Json::parse(responseBody);
-
-                JsonRpcResponse rpcResponse = JsonRpcResponse::fromJson(responseJson);
-
-                if (rpcResponse.error.has_value()) {
-                    JsonRpcError error = JsonRpcError::fromJson(rpcResponse.error.value());
-                    promise.set_value(std::unexpected(
-                        McpError::fromJsonRpcError(error.code, error.message,
-                            error.data.has_value() ? error.data.value().dump() : "")));
-                    co_return;
-                }
-
-                if (!rpcResponse.result.has_value()) {
-                    promise.set_value(std::unexpected(
-                        McpError::invalidResponse("No result in response")));
-                    co_return;
-                }
-
-                promise.set_value(rpcResponse.result.value());
-            } catch (const std::exception& e) {
-                promise.set_value(std::unexpected(
-                    McpError::parseError(e.what())));
-            }
-
+    // 如果连接断开，重新连接
+    if (!m_connected.load()) {
+        auto connectResult = co_await m_httpClient->connect(m_serverUrl);
+        if (!connectResult) {
+            result = std::unexpected(McpError::connectionError(connectResult.error().message()));
             co_return;
         }
-    }());
-
-    // 等待响应
-    auto status = future.wait_for(std::chrono::seconds(30));
-    if (status == std::future_status::timeout) {
-        return std::unexpected(McpError::connectionError("Request timeout"));
+        m_connected = true;
     }
 
-    return future.get();
+    // 发送POST请求
+    auto& awaitable = m_httpClient->post(
+        m_httpClient->url().path,
+        requestBody,
+        "application/json",
+        {
+            {"Host", m_httpClient->url().host + ":" + std::to_string(m_httpClient->url().port)},
+            {"Content-Type", "application/json"}
+        }
+    );
+
+    // 循环等待直到完成
+    while (true) {
+        auto httpResult = co_await awaitable;
+
+        if (!httpResult) {
+            m_connected = false;
+            result = std::unexpected(McpError::connectionError(httpResult.error().message()));
+            co_return;
+        }
+
+        if (!httpResult.value()) {
+            continue;
+        }
+
+        auto response = httpResult.value().value();
+
+        // 根据响应头判断是否需要关闭连接
+        if (response.header().isConnectionClose() || !response.header().isKeepAlive()) {
+            m_connected = false;
+        }
+
+        // 检查HTTP状态码
+        if (response.header().code() != http::HttpStatusCode::OK_200) {
+            result = std::unexpected(McpError::connectionError(
+                "HTTP error: " + std::to_string(static_cast<int>(response.header().code()))));
+            co_return;
+        }
+
+        // 解析响应
+        try {
+            std::string responseBody = response.getBodyStr();
+            Json responseJson = Json::parse(responseBody);
+            JsonRpcResponse rpcResponse = JsonRpcResponse::fromJson(responseJson);
+
+            if (rpcResponse.error.has_value()) {
+                JsonRpcError error = JsonRpcError::fromJson(rpcResponse.error.value());
+                result = std::unexpected(McpError::fromJsonRpcError(
+                    error.code, error.message,
+                    error.data.has_value() ? error.data.value().dump() : ""));
+                co_return;
+            }
+
+            if (rpcResponse.result.has_value()) {
+                result = rpcResponse.result.value();
+            } else {
+                result = Json::object();
+            }
+        } catch (const std::exception& e) {
+            result = std::unexpected(McpError::parseError(e.what()));
+        }
+
+        co_return;
+    }
 }
 
 int64_t McpHttpClient::generateRequestId() {
