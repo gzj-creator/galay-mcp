@@ -9,7 +9,6 @@
 #include <unordered_map>
 #include <memory>
 #include <atomic>
-#include <shared_mutex>
 
 namespace galay {
 namespace mcp {
@@ -25,6 +24,9 @@ using PromptGetter = std::function<kernel::Coroutine(const std::string&, const J
 
 /**
  * @brief 基于HTTP的MCP服务器
+ *
+ * @note 非线程安全：addTool/addResource/addPrompt 必须在 start() 之前调用，
+ *       服务器运行期间不支持动态添加工具、资源或提示。
  */
 class McpHttpServer {
 public:
@@ -88,21 +90,18 @@ private:
         ToolHandler handler;
     };
     std::unordered_map<std::string, ToolInfo> m_tools;
-    mutable std::shared_mutex m_toolsMutex;
 
     struct ResourceInfo {
         Resource resource;
         ResourceReader reader;
     };
     std::unordered_map<std::string, ResourceInfo> m_resources;
-    mutable std::shared_mutex m_resourcesMutex;
 
     struct PromptInfo {
         Prompt prompt;
         PromptGetter getter;
     };
     std::unordered_map<std::string, PromptInfo> m_prompts;
-    mutable std::shared_mutex m_promptsMutex;
 
     std::atomic<bool> m_running;
     std::atomic<bool> m_initialized;

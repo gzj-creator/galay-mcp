@@ -26,8 +26,6 @@ void McpHttpServer::addTool(const std::string& name,
                              const std::string& description,
                              const Json& inputSchema,
                              ToolHandler handler) {
-    std::unique_lock<std::shared_mutex> lock(m_toolsMutex);
-
     Tool tool;
     tool.name = name;
     tool.description = description;
@@ -45,8 +43,6 @@ void McpHttpServer::addResource(const std::string& uri,
                                  const std::string& description,
                                  const std::string& mimeType,
                                  ResourceReader reader) {
-    std::unique_lock<std::shared_mutex> lock(m_resourcesMutex);
-
     Resource resource;
     resource.uri = uri;
     resource.name = name;
@@ -64,8 +60,6 @@ void McpHttpServer::addPrompt(const std::string& name,
                                const std::string& description,
                                const std::vector<Json>& arguments,
                                PromptGetter getter) {
-    std::unique_lock<std::shared_mutex> lock(m_promptsMutex);
-
     Prompt prompt;
     prompt.name = name;
     prompt.description = description;
@@ -263,8 +257,6 @@ Json McpHttpServer::handleToolsList(const JsonRpcRequest& request, bool& connect
                                   "Not initialized", "");
     }
 
-    std::shared_lock<std::shared_mutex> lock(m_toolsMutex);
-
     Json toolsArray = Json::array();
     for (const auto& [name, info] : m_tools) {
         toolsArray.push_back(info.tool.toJson());
@@ -295,19 +287,14 @@ kernel::Coroutine McpHttpServer::handleToolsCall(const JsonRpcRequest& request, 
     try {
         ToolCallParams params = ToolCallParams::fromJson(request.params);
 
-        ToolHandler handler;
-        {
-            std::shared_lock<std::shared_mutex> lock(m_toolsMutex);
-
-            auto it = m_tools.find(params.name);
-            if (it == m_tools.end()) {
-                responseJson = createErrorResponse(request.id.value(), ErrorCodes::METHOD_NOT_FOUND,
-                                          "Tool not found", params.name);
-                co_return;
-            }
-
-            handler = it->second.handler;
+        auto it = m_tools.find(params.name);
+        if (it == m_tools.end()) {
+            responseJson = createErrorResponse(request.id.value(), ErrorCodes::METHOD_NOT_FOUND,
+                                      "Tool not found", params.name);
+            co_return;
         }
+
+        ToolHandler handler = it->second.handler;
 
         // 调用工具处理函数（协程）
         std::expected<Json, McpError> result;
@@ -350,8 +337,6 @@ Json McpHttpServer::handleResourcesList(const JsonRpcRequest& request, bool& con
                                   "Not initialized", "");
     }
 
-    std::shared_lock<std::shared_mutex> lock(m_resourcesMutex);
-
     Json resourcesArray = Json::array();
     for (const auto& [uri, info] : m_resources) {
         resourcesArray.push_back(info.resource.toJson());
@@ -382,19 +367,14 @@ kernel::Coroutine McpHttpServer::handleResourcesRead(const JsonRpcRequest& reque
     try {
         std::string uri = request.params["uri"];
 
-        ResourceReader reader;
-        {
-            std::shared_lock<std::shared_mutex> lock(m_resourcesMutex);
-
-            auto it = m_resources.find(uri);
-            if (it == m_resources.end()) {
-                responseJson = createErrorResponse(request.id.value(), ErrorCodes::METHOD_NOT_FOUND,
-                                          "Resource not found", uri);
-                co_return;
-            }
-
-            reader = it->second.reader;
+        auto it = m_resources.find(uri);
+        if (it == m_resources.end()) {
+            responseJson = createErrorResponse(request.id.value(), ErrorCodes::METHOD_NOT_FOUND,
+                                      "Resource not found", uri);
+            co_return;
         }
+
+        ResourceReader reader = it->second.reader;
 
         // 调用资源读取函数（协程）
         std::expected<std::string, McpError> result;
@@ -440,8 +420,6 @@ Json McpHttpServer::handlePromptsList(const JsonRpcRequest& request, bool& conne
                                   "Not initialized", "");
     }
 
-    std::shared_lock<std::shared_mutex> lock(m_promptsMutex);
-
     Json promptsArray = Json::array();
     for (const auto& [name, info] : m_prompts) {
         promptsArray.push_back(info.prompt.toJson());
@@ -474,19 +452,14 @@ kernel::Coroutine McpHttpServer::handlePromptsGet(const JsonRpcRequest& request,
         Json arguments = request.params.contains("arguments") ?
                         request.params["arguments"] : Json::object();
 
-        PromptGetter getter;
-        {
-            std::shared_lock<std::shared_mutex> lock(m_promptsMutex);
-
-            auto it = m_prompts.find(name);
-            if (it == m_prompts.end()) {
-                responseJson = createErrorResponse(request.id.value(), ErrorCodes::METHOD_NOT_FOUND,
-                                          "Prompt not found", name);
-                co_return;
-            }
-
-            getter = it->second.getter;
+        auto it = m_prompts.find(name);
+        if (it == m_prompts.end()) {
+            responseJson = createErrorResponse(request.id.value(), ErrorCodes::METHOD_NOT_FOUND,
+                                      "Prompt not found", name);
+            co_return;
         }
+
+        PromptGetter getter = it->second.getter;
 
         // 调用提示获取函数（协程）
         std::expected<Json, McpError> result;
