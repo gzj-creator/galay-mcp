@@ -79,12 +79,15 @@ Coroutine runTest(McpHttpClient& client, const std::string& url, int& exitCode) 
     // 调用echo工具
     printSeparator();
     std::cout << "Calling echo tool...\n";
-    Json echoArgs;
-    echoArgs["message"] = "Hello from HTTP client!";
-    std::expected<Json, McpError> echoResult;
-    co_await client.callTool("echo", echoArgs, echoResult).wait();
+    JsonWriter echoArgsWriter;
+    echoArgsWriter.StartObject();
+    echoArgsWriter.Key("message");
+    echoArgsWriter.String("Hello from HTTP client!");
+    echoArgsWriter.EndObject();
+    std::expected<JsonString, McpError> echoResult;
+    co_await client.callTool("echo", echoArgsWriter.TakeString(), echoResult).wait();
     if (echoResult) {
-        std::cout << "Echo result: " << echoResult.value().dump(2) << "\n";
+        std::cout << "Echo result: " << echoResult.value() << "\n";
     } else {
         printError(echoResult.error());
     }
@@ -93,13 +96,17 @@ Coroutine runTest(McpHttpClient& client, const std::string& url, int& exitCode) 
     // 调用add工具
     printSeparator();
     std::cout << "Calling add tool...\n";
-    Json addArgs;
-    addArgs["a"] = 42;
-    addArgs["b"] = 58;
-    std::expected<Json, McpError> addResult;
-    co_await client.callTool("add", addArgs, addResult).wait();
+    JsonWriter addArgsWriter;
+    addArgsWriter.StartObject();
+    addArgsWriter.Key("a");
+    addArgsWriter.Number(static_cast<int64_t>(42));
+    addArgsWriter.Key("b");
+    addArgsWriter.Number(static_cast<int64_t>(58));
+    addArgsWriter.EndObject();
+    std::expected<JsonString, McpError> addResult;
+    co_await client.callTool("add", addArgsWriter.TakeString(), addResult).wait();
     if (addResult) {
-        std::cout << "Add result: " << addResult.value().dump(2) << "\n";
+        std::cout << "Add result: " << addResult.value() << "\n";
     } else {
         printError(addResult.error());
     }
@@ -150,12 +157,15 @@ Coroutine runTest(McpHttpClient& client, const std::string& url, int& exitCode) 
     // 获取提示
     printSeparator();
     std::cout << "Getting prompt...\n";
-    Json promptArgs;
-    promptArgs["name"] = "Alice";
-    std::expected<Json, McpError> promptResult;
-    co_await client.getPrompt("greeting", promptArgs, promptResult).wait();
+    JsonWriter promptArgsWriter;
+    promptArgsWriter.StartObject();
+    promptArgsWriter.Key("name");
+    promptArgsWriter.String("Alice");
+    promptArgsWriter.EndObject();
+    std::expected<JsonString, McpError> promptResult;
+    co_await client.getPrompt("greeting", promptArgsWriter.TakeString(), promptResult).wait();
     if (promptResult) {
-        std::cout << "Prompt result: " << promptResult.value().dump(2) << "\n";
+        std::cout << "Prompt result: " << promptResult.value() << "\n";
     } else {
         printError(promptResult.error());
     }
@@ -190,7 +200,7 @@ int main(int argc, char* argv[]) {
 
     try {
         // 创建Runtime
-        Runtime runtime(LoadBalanceStrategy::ROUND_ROBIN, 1, 1);
+        Runtime runtime(1, 1);
         runtime.start();
         std::cout << "Runtime started\n\n";
 

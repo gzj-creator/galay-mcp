@@ -1,8 +1,9 @@
 #ifndef GALAY_MCP_SERVER_MCPHTTPSERVER_H
 #define GALAY_MCP_SERVER_MCPHTTPSERVER_H
 
-#include "../common/McpBase.h"
-#include "../common/McpError.h"
+#include "galay-mcp/common/McpBase.h"
+#include "galay-mcp/common/McpError.h"
+#include "galay-mcp/common/McpJsonParser.h"
 #include "galay-http/kernel/http/HttpServer.h"
 #include "galay-http/kernel/http/HttpRouter.h"
 #include <functional>
@@ -13,15 +14,6 @@
 namespace galay {
 namespace mcp {
 
-// 工具处理函数类型（协程）
-using ToolHandler = std::function<kernel::Coroutine(const Json&, std::expected<Json, McpError>&)>;
-
-// 资源读取函数类型（协程）
-using ResourceReader = std::function<kernel::Coroutine(const std::string&, std::expected<std::string, McpError>&)>;
-
-// 提示获取函数类型（协程）
-using PromptGetter = std::function<kernel::Coroutine(const std::string&, const Json&, std::expected<Json, McpError>&)>;
-
 /**
  * @brief 基于HTTP的MCP服务器
  *
@@ -30,6 +22,15 @@ using PromptGetter = std::function<kernel::Coroutine(const std::string&, const J
  */
 class McpHttpServer {
 public:
+    // 工具处理函数类型（协程）
+    using ToolHandler = std::function<kernel::Coroutine(const JsonElement&, std::expected<JsonString, McpError>&)>;
+
+    // 资源读取函数类型（协程）
+    using ResourceReader = std::function<kernel::Coroutine(const std::string&, std::expected<std::string, McpError>&)>;
+
+    // 提示获取函数类型（协程）
+    using PromptGetter = std::function<kernel::Coroutine(const std::string&, const JsonElement&, std::expected<JsonString, McpError>&)>;
+
     McpHttpServer(const std::string& host = "0.0.0.0", int port = 8080);
     ~McpHttpServer();
 
@@ -42,7 +43,7 @@ public:
 
     void addTool(const std::string& name,
                  const std::string& description,
-                 const Json& inputSchema,
+                 const JsonString& inputSchema,
                  ToolHandler handler);
 
     void addResource(const std::string& uri,
@@ -53,7 +54,7 @@ public:
 
     void addPrompt(const std::string& name,
                    const std::string& description,
-                   const std::vector<Json>& arguments,
+                   const std::vector<PromptArgument>& arguments,
                    PromptGetter getter);
 
     void start();
@@ -62,22 +63,26 @@ public:
 
 private:
     // 发送JSON响应的协程（只有这一层是协程）
-    kernel::Coroutine sendJsonResponse(http::HttpConn& conn, const Json& responseJson);
+    kernel::Coroutine sendJsonResponse(http::HttpConn& conn, const JsonString& responseJson);
 
     // 处理JSON-RPC请求（协程）
-    kernel::Coroutine processRequest(const Json& requestJson, Json& responseJson, bool& connectionInitialized);
+    kernel::Coroutine processRequest(const std::string& requestBody, JsonString& responseJson, bool& connectionInitialized);
 
     // 处理各种方法（全部同步，除了需要调用handler的）
-    Json handleInitialize(const JsonRpcRequest& request, bool& connectionInitialized);
-    Json handleToolsList(const JsonRpcRequest& request, bool& connectionInitialized);
-    kernel::Coroutine handleToolsCall(const JsonRpcRequest& request, Json& responseJson, bool& connectionInitialized);
-    Json handleResourcesList(const JsonRpcRequest& request, bool& connectionInitialized);
-    kernel::Coroutine handleResourcesRead(const JsonRpcRequest& request, Json& responseJson, bool& connectionInitialized);
-    Json handlePromptsList(const JsonRpcRequest& request, bool& connectionInitialized);
-    kernel::Coroutine handlePromptsGet(const JsonRpcRequest& request, Json& responseJson, bool& connectionInitialized);
-    Json handlePing(const JsonRpcRequest& request);
+    JsonString handleInitialize(const JsonRpcRequestView& request, bool& connectionInitialized);
+    JsonString handleToolsList(const JsonRpcRequestView& request, bool& connectionInitialized);
+    kernel::Coroutine handleToolsCall(const JsonRpcRequestView& request, JsonString& responseJson, bool& connectionInitialized);
+    JsonString handleResourcesList(const JsonRpcRequestView& request, bool& connectionInitialized);
+    kernel::Coroutine handleResourcesRead(const JsonRpcRequestView& request, JsonString& responseJson, bool& connectionInitialized);
+    JsonString handlePromptsList(const JsonRpcRequestView& request, bool& connectionInitialized);
+    kernel::Coroutine handlePromptsGet(const JsonRpcRequestView& request, JsonString& responseJson, bool& connectionInitialized);
+    JsonString handlePing(const JsonRpcRequestView& request);
 
-    Json createErrorResponse(int64_t id, int code, const std::string& message, const std::string& details = "");
+    JsonString createErrorResponse(int64_t id, int code, const std::string& message, const std::string& details = "");
+
+    const JsonString& getToolsListResult();
+    const JsonString& getResourcesListResult();
+    const JsonString& getPromptsListResult();
 
 private:
     std::string m_host;
@@ -102,6 +107,13 @@ private:
         PromptGetter getter;
     };
     std::unordered_map<std::string, PromptInfo> m_prompts;
+
+    JsonString m_toolsListCache;
+    JsonString m_resourcesListCache;
+    JsonString m_promptsListCache;
+    bool m_toolsCacheDirty;
+    bool m_resourcesCacheDirty;
+    bool m_promptsCacheDirty;
 
     std::atomic<bool> m_running;
     std::atomic<bool> m_initialized;

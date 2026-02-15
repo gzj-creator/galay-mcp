@@ -358,5 +358,6 @@ bash scripts/S5-TestHttpServer.sh
 ## 相关文档
 
 - [T3-HTTP客户端测试.md](T3-HTTP客户端测试.md) - HTTP客户端测试文档
+- [4-性能测试.md](4-性能测试.md) - 性能测试总览文档
 - [B2-HTTP性能测试.md](B2-HTTP性能测试.md) - HTTP性能测试文档
 - [B3-并发请求压测.md](B3-并发请求压测.md) - 并发请求压测文档

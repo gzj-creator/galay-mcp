@@ -1,8 +1,9 @@
 #ifndef GALAY_MCP_SERVER_MCPSTDIOSERVER_H
 #define GALAY_MCP_SERVER_MCPSTDIOSERVER_H
 
-#include "../common/McpBase.h"
-#include "../common/McpError.h"
+#include "galay-mcp/common/McpBase.h"
+#include "galay-mcp/common/McpError.h"
+#include "galay-mcp/common/McpJsonParser.h"
 #include <functional>
 #include <unordered_map>
 #include <memory>
@@ -13,15 +14,6 @@
 namespace galay {
 namespace mcp {
 
-// 工具处理函数类型
-using ToolHandler = std::function<std::expected<Json, McpError>(const Json&)>;
-
-// 资源读取函数类型
-using ResourceReader = std::function<std::expected<std::string, McpError>(const std::string&)>;
-
-// 提示获取函数类型
-using PromptGetter = std::function<std::expected<Json, McpError>(const std::string&, const Json&)>;
-
 /**
  * @brief 基于标准输入输出的MCP服务器
  *
@@ -30,6 +22,15 @@ using PromptGetter = std::function<std::expected<Json, McpError>(const std::stri
  */
 class McpStdioServer {
 public:
+    // 工具处理函数类型
+    using ToolHandler = std::function<std::expected<JsonString, McpError>(const JsonElement&)>;
+
+    // 资源读取函数类型
+    using ResourceReader = std::function<std::expected<std::string, McpError>(const std::string&)>;
+
+    // 提示获取函数类型
+    using PromptGetter = std::function<std::expected<JsonString, McpError>(const std::string&, const JsonElement&)>;
+
     McpStdioServer();
     ~McpStdioServer();
 
@@ -55,7 +56,7 @@ public:
      */
     void addTool(const std::string& name,
                  const std::string& description,
-                 const Json& inputSchema,
+                 const JsonString& inputSchema,
                  ToolHandler handler);
 
     /**
@@ -81,7 +82,7 @@ public:
      */
     void addPrompt(const std::string& name,
                    const std::string& description,
-                   const std::vector<Json>& arguments,
+                   const std::vector<PromptArgument>& arguments,
                    PromptGetter getter);
 
     /**
@@ -103,28 +104,28 @@ public:
 
 private:
     // 处理请求
-    void handleRequest(const JsonRpcRequest& request);
+    void handleRequest(const JsonRpcRequestView& request);
 
     // 处理各种方法
-    void handleInitialize(const JsonRpcRequest& request);
-    void handleToolsList(const JsonRpcRequest& request);
-    void handleToolsCall(const JsonRpcRequest& request);
-    void handleResourcesList(const JsonRpcRequest& request);
-    void handleResourcesRead(const JsonRpcRequest& request);
-    void handlePromptsList(const JsonRpcRequest& request);
-    void handlePromptsGet(const JsonRpcRequest& request);
-    void handlePing(const JsonRpcRequest& request);
+    void handleInitialize(const JsonRpcRequestView& request);
+    void handleToolsList(const JsonRpcRequestView& request);
+    void handleToolsCall(const JsonRpcRequestView& request);
+    void handleResourcesList(const JsonRpcRequestView& request);
+    void handleResourcesRead(const JsonRpcRequestView& request);
+    void handlePromptsList(const JsonRpcRequestView& request);
+    void handlePromptsGet(const JsonRpcRequestView& request);
+    void handlePing(const JsonRpcRequestView& request);
 
     // 发送响应
     void sendResponse(const JsonRpcResponse& response);
     void sendError(int64_t id, int code, const std::string& message, const std::string& details = "");
-    void sendNotification(const std::string& method, const Json& params);
+    void sendNotification(const std::string& method, const JsonString& params);
 
     // 读取一行JSON消息
-    std::expected<Json, McpError> readMessage();
+    std::expected<std::string, McpError> readMessage();
 
     // 写入一行JSON消息
-    std::expected<void, McpError> writeMessage(const Json& message);
+    std::expected<void, McpError> writeMessage(const JsonString& message);
 
 private:
     // 服务器信息
@@ -154,6 +155,10 @@ private:
     };
     std::unordered_map<std::string, PromptInfo> m_prompts;
     mutable std::shared_mutex m_promptsMutex;
+
+    JsonString m_toolsListCache;
+    JsonString m_resourcesListCache;
+    JsonString m_promptsListCache;
 
     // 运行状态
     std::atomic<bool> m_running;

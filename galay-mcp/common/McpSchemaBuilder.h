@@ -1,7 +1,8 @@
 #ifndef GALAY_MCP_COMMON_MCPSCHEMABUILDER_H
 #define GALAY_MCP_COMMON_MCPSCHEMABUILDER_H
 
-#include "McpBase.h"
+#include "galay-mcp/common/McpBase.h"
+#include "galay-mcp/common/McpJson.h"
 #include <string>
 #include <vector>
 
@@ -15,186 +16,275 @@ namespace mcp {
  */
 class SchemaBuilder {
 public:
-    SchemaBuilder() {
-        m_schema["type"] = "object";
-        m_schema["properties"] = Json::object();
-    }
+    SchemaBuilder() = default;
 
     /**
      * @brief 添加字符串属性
-     * @param name 属性名
-     * @param description 属性描述
-     * @param required 是否必需
-     * @return 返回自身引用，支持链式调用
      */
     SchemaBuilder& addString(const std::string& name,
-                            const std::string& description,
-                            bool required = false) {
-        Json prop = Json::object();
-        prop["type"] = "string";
-        prop["description"] = description;
-        m_schema["properties"][name] = prop;
-
-        if (required) {
-            addRequired(name);
-        }
+                             const std::string& description,
+                             bool required = false) {
+        Property prop;
+        prop.kind = PropertyKind::String;
+        prop.name = name;
+        prop.description = description;
+        prop.required = required;
+        m_properties.push_back(std::move(prop));
         return *this;
     }
 
     /**
      * @brief 添加数字属性
-     * @param name 属性名
-     * @param description 属性描述
-     * @param required 是否必需
-     * @return 返回自身引用，支持链式调用
      */
     SchemaBuilder& addNumber(const std::string& name,
-                            const std::string& description,
-                            bool required = false) {
-        Json prop = Json::object();
-        prop["type"] = "number";
-        prop["description"] = description;
-        m_schema["properties"][name] = prop;
-
-        if (required) {
-            addRequired(name);
-        }
+                             const std::string& description,
+                             bool required = false) {
+        Property prop;
+        prop.kind = PropertyKind::Number;
+        prop.name = name;
+        prop.description = description;
+        prop.required = required;
+        m_properties.push_back(std::move(prop));
         return *this;
     }
 
     /**
      * @brief 添加整数属性
-     * @param name 属性名
-     * @param description 属性描述
-     * @param required 是否必需
-     * @return 返回自身引用，支持链式调用
      */
     SchemaBuilder& addInteger(const std::string& name,
-                             const std::string& description,
-                             bool required = false) {
-        Json prop = Json::object();
-        prop["type"] = "integer";
-        prop["description"] = description;
-        m_schema["properties"][name] = prop;
-
-        if (required) {
-            addRequired(name);
-        }
+                              const std::string& description,
+                              bool required = false) {
+        Property prop;
+        prop.kind = PropertyKind::Integer;
+        prop.name = name;
+        prop.description = description;
+        prop.required = required;
+        m_properties.push_back(std::move(prop));
         return *this;
     }
 
     /**
      * @brief 添加布尔属性
-     * @param name 属性名
-     * @param description 属性描述
-     * @param required 是否必需
-     * @return 返回自身引用，支持链式调用
      */
     SchemaBuilder& addBoolean(const std::string& name,
-                             const std::string& description,
-                             bool required = false) {
-        Json prop = Json::object();
-        prop["type"] = "boolean";
-        prop["description"] = description;
-        m_schema["properties"][name] = prop;
-
-        if (required) {
-            addRequired(name);
-        }
+                              const std::string& description,
+                              bool required = false) {
+        Property prop;
+        prop.kind = PropertyKind::Boolean;
+        prop.name = name;
+        prop.description = description;
+        prop.required = required;
+        m_properties.push_back(std::move(prop));
         return *this;
     }
 
     /**
      * @brief 添加数组属性
-     * @param name 属性名
-     * @param description 属性描述
-     * @param itemType 数组元素类型
-     * @param required 是否必需
-     * @return 返回自身引用，支持链式调用
      */
     SchemaBuilder& addArray(const std::string& name,
-                           const std::string& description,
-                           const std::string& itemType = "string",
-                           bool required = false) {
-        Json prop = Json::object();
-        prop["type"] = "array";
-        prop["description"] = description;
-        prop["items"] = Json::object();
-        prop["items"]["type"] = itemType;
-        m_schema["properties"][name] = prop;
-
-        if (required) {
-            addRequired(name);
-        }
+                            const std::string& description,
+                            const std::string& itemType = "string",
+                            bool required = false) {
+        Property prop;
+        prop.kind = PropertyKind::Array;
+        prop.name = name;
+        prop.description = description;
+        prop.itemType = itemType;
+        prop.required = required;
+        m_properties.push_back(std::move(prop));
         return *this;
     }
 
     /**
-     * @brief 添加对象属性
-     * @param name 属性名
-     * @param description 属性描述
-     * @param objectSchema 对象的 Schema
-     * @param required 是否必需
-     * @return 返回自身引用，支持链式调用
+     * @brief 添加对象属性（使用已有 Schema JSON）
      */
     SchemaBuilder& addObject(const std::string& name,
-                            const std::string& description,
-                            const Json& objectSchema,
-                            bool required = false) {
-        Json prop = objectSchema;
-        prop["description"] = description;
-        m_schema["properties"][name] = prop;
-
-        if (required) {
-            addRequired(name);
-        }
+                             const std::string& description,
+                             const JsonString& objectSchema,
+                             bool required = false) {
+        Property prop;
+        prop.kind = PropertyKind::Object;
+        prop.name = name;
+        prop.description = description;
+        prop.objectSchema = objectSchema;
+        prop.required = required;
+        m_properties.push_back(std::move(prop));
         return *this;
+    }
+
+    /**
+     * @brief 添加对象属性（使用 SchemaBuilder）
+     */
+    SchemaBuilder& addObject(const std::string& name,
+                             const std::string& description,
+                             const SchemaBuilder& objectSchema,
+                             bool required = false) {
+        return addObject(name, description, objectSchema.build(), required);
     }
 
     /**
      * @brief 添加枚举属性
-     * @param name 属性名
-     * @param description 属性描述
-     * @param enumValues 枚举值列表
-     * @param required 是否必需
-     * @return 返回自身引用，支持链式调用
      */
     SchemaBuilder& addEnum(const std::string& name,
-                          const std::string& description,
-                          const std::vector<std::string>& enumValues,
-                          bool required = false) {
-        Json prop = Json::object();
-        prop["type"] = "string";
-        prop["description"] = description;
-        prop["enum"] = Json::array();
-        for (const auto& value : enumValues) {
-            prop["enum"].push_back(value);
-        }
-        m_schema["properties"][name] = prop;
-
-        if (required) {
-            addRequired(name);
-        }
+                           const std::string& description,
+                           const std::vector<std::string>& enumValues,
+                           bool required = false) {
+        Property prop;
+        prop.kind = PropertyKind::Enum;
+        prop.name = name;
+        prop.description = description;
+        prop.enumValues = enumValues;
+        prop.required = required;
+        m_properties.push_back(std::move(prop));
         return *this;
     }
 
     /**
      * @brief 构建最终的 Schema
-     * @return JSON Schema 对象
+     * @return JSON Schema 字符串
      */
-    Json build() const {
-        return m_schema;
+    JsonString build() const {
+        JsonWriter writer;
+        writer.StartObject();
+        writer.Key("type");
+        writer.String("object");
+        writer.Key("properties");
+        writer.StartObject();
+        for (const auto& prop : m_properties) {
+            writer.Key(prop.name);
+            writeProperty(writer, prop);
+        }
+        writer.EndObject();
+
+        bool hasRequired = false;
+        for (const auto& prop : m_properties) {
+            if (prop.required) {
+                hasRequired = true;
+                break;
+            }
+        }
+        if (hasRequired) {
+            writer.Key("required");
+            writer.StartArray();
+            for (const auto& prop : m_properties) {
+                if (prop.required) {
+                    writer.String(prop.name);
+                }
+            }
+            writer.EndArray();
+        }
+        writer.EndObject();
+        return writer.TakeString();
     }
 
 private:
-    void addRequired(const std::string& name) {
-        if (!m_schema.contains("required")) {
-            m_schema["required"] = Json::array();
+    enum class PropertyKind {
+        String,
+        Number,
+        Integer,
+        Boolean,
+        Array,
+        Object,
+        Enum
+    };
+
+    struct Property {
+        PropertyKind kind{PropertyKind::String};
+        std::string name;
+        std::string description;
+        bool required{false};
+        std::string itemType;
+        std::vector<std::string> enumValues;
+        JsonString objectSchema;
+    };
+
+    static void writeProperty(JsonWriter& writer, const Property& prop) {
+        if (prop.kind == PropertyKind::Object && !prop.objectSchema.empty()) {
+            if (prop.description.empty()) {
+                writer.Raw(prop.objectSchema);
+                return;
+            }
+
+            auto parsed = JsonDocument::Parse(prop.objectSchema);
+            if (!parsed) {
+                writer.Raw(prop.objectSchema);
+                return;
+            }
+
+            JsonObject obj;
+            if (!JsonHelper::GetObject(parsed.value().Root(), obj)) {
+                writer.Raw(prop.objectSchema);
+                return;
+            }
+
+            JsonWriter merged;
+            merged.StartObject();
+            merged.Key("description");
+            merged.String(prop.description);
+            for (auto field : obj) {
+                std::string raw;
+                if (JsonHelper::GetRawJson(field.value, raw)) {
+                    merged.Key(std::string(field.key));
+                    merged.Raw(raw);
+                }
+            }
+            merged.EndObject();
+            writer.Raw(merged.TakeString());
+            return;
         }
-        m_schema["required"].push_back(name);
+
+        writer.StartObject();
+        writer.Key("type");
+        switch (prop.kind) {
+            case PropertyKind::String:
+                writer.String("string");
+                break;
+            case PropertyKind::Number:
+                writer.String("number");
+                break;
+            case PropertyKind::Integer:
+                writer.String("integer");
+                break;
+            case PropertyKind::Boolean:
+                writer.String("boolean");
+                break;
+            case PropertyKind::Array:
+                writer.String("array");
+                break;
+            case PropertyKind::Enum:
+                writer.String("string");
+                break;
+            case PropertyKind::Object:
+                writer.String("object");
+                break;
+        }
+
+        if (!prop.description.empty()) {
+            writer.Key("description");
+            writer.String(prop.description);
+        }
+
+        if (prop.kind == PropertyKind::Array) {
+            writer.Key("items");
+            writer.StartObject();
+            writer.Key("type");
+            writer.String(prop.itemType.empty() ? "string" : prop.itemType);
+            writer.EndObject();
+        }
+
+        if (prop.kind == PropertyKind::Enum) {
+            writer.Key("enum");
+            writer.StartArray();
+            for (const auto& value : prop.enumValues) {
+                writer.String(value);
+            }
+            writer.EndArray();
+        }
+
+        writer.EndObject();
     }
 
-    Json m_schema;
+    std::vector<Property> m_properties;
 };
 
 /**
@@ -206,32 +296,27 @@ class PromptArgumentBuilder {
 public:
     /**
      * @brief 添加参数
-     * @param name 参数名
-     * @param description 参数描述
-     * @param required 是否必需
-     * @return 返回自身引用，支持链式调用
      */
     PromptArgumentBuilder& addArgument(const std::string& name,
                                        const std::string& description,
                                        bool required = false) {
-        Json arg = Json::object();
-        arg["name"] = name;
-        arg["description"] = description;
-        arg["required"] = required;
-        m_arguments.push_back(arg);
+        PromptArgument arg;
+        arg.name = name;
+        arg.description = description;
+        arg.required = required;
+        m_arguments.push_back(std::move(arg));
         return *this;
     }
 
     /**
      * @brief 构建参数列表
-     * @return 参数 JSON 数组
      */
-    std::vector<Json> build() const {
+    std::vector<PromptArgument> build() const {
         return m_arguments;
     }
 
 private:
-    std::vector<Json> m_arguments;
+    std::vector<PromptArgument> m_arguments;
 };
 
 } // namespace mcp

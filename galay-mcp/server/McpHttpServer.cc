@@ -1,14 +1,26 @@
-#include "McpHttpServer.h"
+#include "galay-mcp/server/McpHttpServer.h"
 #include "galay-http/utils/Http1_1ResponseBuilder.h"
+#include "galay-mcp/common/McpProtocolUtils.h"
 
 namespace galay {
 namespace mcp {
+
+namespace {
+
+JsonString EmptyObjectString() {
+    return "{}";
+}
+
+} // namespace
 
 McpHttpServer::McpHttpServer(const std::string& host, int port)
     : m_host(host)
     , m_port(port)
     , m_serverName("galay-mcp-http-server")
     , m_serverVersion("1.0.0")
+    , m_toolsCacheDirty(true)
+    , m_resourcesCacheDirty(true)
+    , m_promptsCacheDirty(true)
     , m_running(false)
     , m_initialized(false) {
 }
@@ -24,8 +36,8 @@ void McpHttpServer::setServerInfo(const std::string& name, const std::string& ve
 
 void McpHttpServer::addTool(const std::string& name,
                              const std::string& description,
-                             const Json& inputSchema,
-                             ToolHandler handler) {
+                             const JsonString& inputSchema,
+                             McpHttpServer::ToolHandler handler) {
     Tool tool;
     tool.name = name;
     tool.description = description;
@@ -36,13 +48,14 @@ void McpHttpServer::addTool(const std::string& name,
     info.handler = handler;
 
     m_tools[name] = info;
+    m_toolsCacheDirty = true;
 }
 
 void McpHttpServer::addResource(const std::string& uri,
                                  const std::string& name,
                                  const std::string& description,
                                  const std::string& mimeType,
-                                 ResourceReader reader) {
+                                 McpHttpServer::ResourceReader reader) {
     Resource resource;
     resource.uri = uri;
     resource.name = name;
@@ -54,12 +67,13 @@ void McpHttpServer::addResource(const std::string& uri,
     info.reader = reader;
 
     m_resources[uri] = info;
+    m_resourcesCacheDirty = true;
 }
 
 void McpHttpServer::addPrompt(const std::string& name,
                                const std::string& description,
-                               const std::vector<Json>& arguments,
-                               PromptGetter getter) {
+                               const std::vector<PromptArgument>& arguments,
+                               McpHttpServer::PromptGetter getter) {
     Prompt prompt;
     prompt.name = name;
     prompt.description = description;
@@ -70,6 +84,7 @@ void McpHttpServer::addPrompt(const std::string& name,
     info.getter = getter;
 
     m_prompts[name] = info;
+    m_promptsCacheDirty = true;
 }
 
 void McpHttpServer::start() {
@@ -82,16 +97,15 @@ void McpHttpServer::start() {
     auto* serverPtr = this;
     m_router->addHandler<http::HttpMethod::POST>("/mcp",
         [serverPtr](http::HttpConn& conn, http::HttpRequest req) -> kernel::Coroutine {
-            // 每个连接独立的初始化状态
+            // 每个连接独立的初始化状态（若已有全局初始化则允许短连接复用）
             bool connectionInitialized = false;
 
             // 处理第一个请求
             {
                 const std::string& requestBody = req.bodyStr();
-                Json responseJson;
+                JsonString responseJson;
                 try {
-                    Json requestJson = Json::parse(requestBody);
-                    co_await serverPtr->processRequest(requestJson, responseJson, connectionInitialized).wait();
+                    co_await serverPtr->processRequest(requestBody, responseJson, connectionInitialized).wait();
                 } catch (const std::exception& e) {
                     responseJson = serverPtr->createErrorResponse(0, ErrorCodes::PARSE_ERROR,
                                                       "Parse error", e.what());
@@ -119,10 +133,9 @@ void McpHttpServer::start() {
 
                 const std::string& requestBody = nextReq.bodyStr();
 
-                Json responseJson;
+                JsonString responseJson;
                 try {
-                    Json requestJson = Json::parse(requestBody);
-                    co_await serverPtr->processRequest(requestJson, responseJson, connectionInitialized).wait();
+                    co_await serverPtr->processRequest(requestBody, responseJson, connectionInitialized).wait();
                 } catch (const std::exception& e) {
                     responseJson = serverPtr->createErrorResponse(0, ErrorCodes::PARSE_ERROR,
                                                       "Parse error", e.what());
@@ -154,12 +167,12 @@ bool McpHttpServer::isRunning() const {
     return m_running;
 }
 
-kernel::Coroutine McpHttpServer::sendJsonResponse(http::HttpConn& conn, const Json& responseJson) {
+kernel::Coroutine McpHttpServer::sendJsonResponse(http::HttpConn& conn, const JsonString& responseJson) {
     auto response = http::Http1_1ResponseBuilder::ok()
         .header("Server", m_serverName + "/" + m_serverVersion)
         .header("Content-Type", "application/json")
         .header("Connection", "keep-alive")
-        .json(responseJson.dump())
+        .json(responseJson)
         .build();
 
     auto writer = conn.getWriter();
@@ -172,9 +185,18 @@ kernel::Coroutine McpHttpServer::sendJsonResponse(http::HttpConn& conn, const Js
     co_return;
 }
 
-kernel::Coroutine McpHttpServer::processRequest(const Json& requestJson, Json& responseJson, bool& connectionInitialized) {
+kernel::Coroutine McpHttpServer::processRequest(const std::string& requestBody, JsonString& responseJson, bool& connectionInitialized) {
     try {
-        JsonRpcRequest request = JsonRpcRequest::fromJson(requestJson);
+        auto parsed = parseJsonRpcRequest(requestBody);
+        if (!parsed) {
+            responseJson = createErrorResponse(0,
+                                   parsed.error().toJsonRpcErrorCode(),
+                                   parsed.error().message(),
+                                   parsed.error().details());
+            co_return;
+        }
+
+        const JsonRpcRequestView& request = parsed.value().request;
         const std::string& method = request.method;
 
         if (method == Methods::INITIALIZE) {
@@ -199,7 +221,7 @@ kernel::Coroutine McpHttpServer::processRequest(const Json& requestJson, Json& r
                                          ErrorCodes::METHOD_NOT_FOUND,
                                          "Method not found", method);
             } else {
-                responseJson = Json::object();
+                responseJson = EmptyObjectString();
             }
         }
     } catch (const std::exception& e) {
@@ -209,9 +231,9 @@ kernel::Coroutine McpHttpServer::processRequest(const Json& requestJson, Json& r
     co_return;
 }
 
-Json McpHttpServer::handleInitialize(const JsonRpcRequest& request, bool& connectionInitialized) {
+JsonString McpHttpServer::handleInitialize(const JsonRpcRequestView& request, bool& connectionInitialized) {
     if (!request.id.has_value()) {
-        return Json::object();
+        return EmptyObjectString();
     }
 
     if (connectionInitialized) {
@@ -219,86 +241,99 @@ Json McpHttpServer::handleInitialize(const JsonRpcRequest& request, bool& connec
                                   "Already initialized", "");
     }
 
-    try {
-        InitializeParams params = InitializeParams::fromJson(request.params);
-
-        InitializeResult result;
-        result.protocolVersion = MCP_VERSION;
-        result.serverInfo.name = m_serverName;
-        result.serverInfo.version = m_serverVersion;
-        result.serverInfo.capabilities = Json::object();
-
-        result.capabilities.tools = !m_tools.empty();
-        result.capabilities.resources = !m_resources.empty();
-        result.capabilities.prompts = !m_prompts.empty();
-        result.capabilities.logging = false;
-
-        JsonRpcResponse response;
-        response.id = request.id.value();
-        response.result = result.toJson();
-
-        connectionInitialized = true;
-
-        return response.toJson();
-
-    } catch (const std::exception& e) {
+    if (!request.hasParams) {
         return createErrorResponse(request.id.value(), ErrorCodes::INVALID_PARAMS,
-                                  "Invalid parameters", e.what());
-    }
-}
-
-Json McpHttpServer::handleToolsList(const JsonRpcRequest& request, bool& connectionInitialized) {
-    if (!request.id.has_value()) {
-        return Json::object();
+                                  "Invalid parameters", "Missing params");
     }
 
-    if (!connectionInitialized) {
-        return createErrorResponse(request.id.value(), ErrorCodes::INVALID_REQUEST,
-                                  "Not initialized", "");
+    auto paramsExp = InitializeParams::fromJson(request.params);
+    if (!paramsExp) {
+        return createErrorResponse(request.id.value(), ErrorCodes::INVALID_PARAMS,
+                                  "Invalid parameters", paramsExp.error().message());
     }
 
-    Json toolsArray = Json::array();
-    for (const auto& [name, info] : m_tools) {
-        toolsArray.push_back(info.tool.toJson());
-    }
+    JsonString result = protocol::buildInitializeResult(
+        m_serverName,
+        m_serverVersion,
+        !m_tools.empty(),
+        !m_resources.empty(),
+        !m_prompts.empty());
 
-    Json result;
-    result["tools"] = toolsArray;
+    JsonRpcResponse response = protocol::makeResultResponse(request.id.value(), result);
 
-    JsonRpcResponse response;
-    response.id = request.id.value();
-    response.result = result;
+    connectionInitialized = true;
+    m_initialized.store(true, std::memory_order_relaxed);
 
     return response.toJson();
 }
 
-kernel::Coroutine McpHttpServer::handleToolsCall(const JsonRpcRequest& request, Json& responseJson, bool& connectionInitialized) {
+JsonString McpHttpServer::handleToolsList(const JsonRpcRequestView& request, bool& connectionInitialized) {
     if (!request.id.has_value()) {
-        responseJson = Json::object();
+        return EmptyObjectString();
+    }
+
+    if (!connectionInitialized && !m_initialized.load(std::memory_order_relaxed)) {
+        return createErrorResponse(request.id.value(), ErrorCodes::INVALID_REQUEST,
+                                  "Not initialized", "");
+    }
+
+    JsonRpcResponse response = protocol::makeResultResponse(
+        request.id.value(), getToolsListResult());
+
+    return response.toJson();
+}
+
+kernel::Coroutine McpHttpServer::handleToolsCall(const JsonRpcRequestView& request, JsonString& responseJson, bool& connectionInitialized) {
+    if (!request.id.has_value()) {
+        responseJson = EmptyObjectString();
         co_return;
     }
 
-    if (!connectionInitialized) {
+    if (!connectionInitialized && !m_initialized.load(std::memory_order_relaxed)) {
         responseJson = createErrorResponse(request.id.value(), ErrorCodes::INVALID_REQUEST,
                                   "Not initialized", "");
         co_return;
     }
 
     try {
-        ToolCallParams params = ToolCallParams::fromJson(request.params);
-
-        auto it = m_tools.find(params.name);
-        if (it == m_tools.end()) {
-            responseJson = createErrorResponse(request.id.value(), ErrorCodes::METHOD_NOT_FOUND,
-                                      "Tool not found", params.name);
+        if (!request.hasParams) {
+            responseJson = createErrorResponse(request.id.value(), ErrorCodes::INVALID_PARAMS,
+                                      "Invalid parameters", "Missing params");
             co_return;
         }
 
-        ToolHandler handler = it->second.handler;
+        JsonObject paramsObj;
+        if (!JsonHelper::GetObject(request.params, paramsObj)) {
+            responseJson = createErrorResponse(request.id.value(), ErrorCodes::INVALID_PARAMS,
+                                      "Invalid parameters", "Params must be object");
+            co_return;
+        }
+
+        std::string toolName;
+        if (!JsonHelper::GetString(paramsObj, "name", toolName)) {
+            responseJson = createErrorResponse(request.id.value(), ErrorCodes::INVALID_PARAMS,
+                                      "Invalid parameters", "Missing tool name");
+            co_return;
+        }
+
+        auto it = m_tools.find(toolName);
+        if (it == m_tools.end()) {
+            responseJson = createErrorResponse(request.id.value(), ErrorCodes::METHOD_NOT_FOUND,
+                                      "Tool not found", toolName);
+            co_return;
+        }
+
+        McpHttpServer::ToolHandler handler = it->second.handler;
+
+        JsonElement arguments = JsonHelper::EmptyObject();
+        JsonElement argsElement;
+        if (JsonHelper::GetElement(paramsObj, "arguments", argsElement)) {
+            arguments = argsElement;
+        }
 
         // 调用工具处理函数（协程）
-        std::expected<Json, McpError> result;
-        co_await handler(params.arguments, result).wait();
+        std::expected<JsonString, McpError> result;
+        co_await handler(arguments, result).wait();
 
         if (!result) {
             responseJson = createErrorResponse(request.id.value(),
@@ -311,7 +346,7 @@ kernel::Coroutine McpHttpServer::handleToolsCall(const JsonRpcRequest& request, 
         ToolCallResult callResult;
         Content content;
         content.type = ContentType::Text;
-        content.text = result.value().dump();
+        content.text = result.value();
         callResult.content.push_back(content);
 
         JsonRpcResponse response;
@@ -327,45 +362,54 @@ kernel::Coroutine McpHttpServer::handleToolsCall(const JsonRpcRequest& request, 
     co_return;
 }
 
-Json McpHttpServer::handleResourcesList(const JsonRpcRequest& request, bool& connectionInitialized) {
+JsonString McpHttpServer::handleResourcesList(const JsonRpcRequestView& request, bool& connectionInitialized) {
     if (!request.id.has_value()) {
-        return Json::object();
+        return EmptyObjectString();
     }
 
-    if (!connectionInitialized) {
+    if (!connectionInitialized && !m_initialized.load(std::memory_order_relaxed)) {
         return createErrorResponse(request.id.value(), ErrorCodes::INVALID_REQUEST,
                                   "Not initialized", "");
     }
 
-    Json resourcesArray = Json::array();
-    for (const auto& [uri, info] : m_resources) {
-        resourcesArray.push_back(info.resource.toJson());
-    }
-
-    Json result;
-    result["resources"] = resourcesArray;
-
-    JsonRpcResponse response;
-    response.id = request.id.value();
-    response.result = result;
+    JsonRpcResponse response = protocol::makeResultResponse(
+        request.id.value(), getResourcesListResult());
 
     return response.toJson();
 }
 
-kernel::Coroutine McpHttpServer::handleResourcesRead(const JsonRpcRequest& request, Json& responseJson, bool& connectionInitialized) {
+kernel::Coroutine McpHttpServer::handleResourcesRead(const JsonRpcRequestView& request, JsonString& responseJson, bool& connectionInitialized) {
     if (!request.id.has_value()) {
-        responseJson = Json::object();
+        responseJson = EmptyObjectString();
         co_return;
     }
 
-    if (!connectionInitialized) {
+    if (!connectionInitialized && !m_initialized.load(std::memory_order_relaxed)) {
         responseJson = createErrorResponse(request.id.value(), ErrorCodes::INVALID_REQUEST,
                                   "Not initialized", "");
         co_return;
     }
 
     try {
-        std::string uri = request.params["uri"];
+        if (!request.hasParams) {
+            responseJson = createErrorResponse(request.id.value(), ErrorCodes::INVALID_PARAMS,
+                                      "Invalid parameters", "Missing params");
+            co_return;
+        }
+
+        JsonObject paramsObj;
+        if (!JsonHelper::GetObject(request.params, paramsObj)) {
+            responseJson = createErrorResponse(request.id.value(), ErrorCodes::INVALID_PARAMS,
+                                      "Invalid parameters", "Params must be object");
+            co_return;
+        }
+
+        std::string uri;
+        if (!JsonHelper::GetString(paramsObj, "uri", uri)) {
+            responseJson = createErrorResponse(request.id.value(), ErrorCodes::INVALID_PARAMS,
+                                      "Invalid parameters", "Missing uri");
+            co_return;
+        }
 
         auto it = m_resources.find(uri);
         if (it == m_resources.end()) {
@@ -374,7 +418,7 @@ kernel::Coroutine McpHttpServer::handleResourcesRead(const JsonRpcRequest& reque
             co_return;
         }
 
-        ResourceReader reader = it->second.reader;
+        McpHttpServer::ResourceReader reader = it->second.reader;
 
         // 调用资源读取函数（协程）
         std::expected<std::string, McpError> result;
@@ -388,18 +432,21 @@ kernel::Coroutine McpHttpServer::handleResourcesRead(const JsonRpcRequest& reque
             co_return;
         }
 
-        Json contents = Json::array();
         Content content;
         content.type = ContentType::Text;
         content.text = result.value();
-        contents.push_back(content.toJson());
 
-        Json responseResult;
-        responseResult["contents"] = contents;
+        JsonWriter resultWriter;
+        resultWriter.StartObject();
+        resultWriter.Key("contents");
+        resultWriter.StartArray();
+        resultWriter.Raw(content.toJson());
+        resultWriter.EndArray();
+        resultWriter.EndObject();
 
         JsonRpcResponse response;
         response.id = request.id.value();
-        response.result = responseResult;
+        response.result = resultWriter.TakeString();
 
         responseJson = response.toJson();
 
@@ -410,47 +457,60 @@ kernel::Coroutine McpHttpServer::handleResourcesRead(const JsonRpcRequest& reque
     co_return;
 }
 
-Json McpHttpServer::handlePromptsList(const JsonRpcRequest& request, bool& connectionInitialized) {
+JsonString McpHttpServer::handlePromptsList(const JsonRpcRequestView& request, bool& connectionInitialized) {
     if (!request.id.has_value()) {
-        return Json::object();
+        return EmptyObjectString();
     }
 
-    if (!connectionInitialized) {
+    if (!connectionInitialized && !m_initialized.load(std::memory_order_relaxed)) {
         return createErrorResponse(request.id.value(), ErrorCodes::INVALID_REQUEST,
                                   "Not initialized", "");
     }
 
-    Json promptsArray = Json::array();
-    for (const auto& [name, info] : m_prompts) {
-        promptsArray.push_back(info.prompt.toJson());
-    }
-
-    Json result;
-    result["prompts"] = promptsArray;
-
-    JsonRpcResponse response;
-    response.id = request.id.value();
-    response.result = result;
+    JsonRpcResponse response = protocol::makeResultResponse(
+        request.id.value(), getPromptsListResult());
 
     return response.toJson();
 }
 
-kernel::Coroutine McpHttpServer::handlePromptsGet(const JsonRpcRequest& request, Json& responseJson, bool& connectionInitialized) {
+kernel::Coroutine McpHttpServer::handlePromptsGet(const JsonRpcRequestView& request, JsonString& responseJson, bool& connectionInitialized) {
     if (!request.id.has_value()) {
-        responseJson = Json::object();
+        responseJson = EmptyObjectString();
         co_return;
     }
 
-    if (!connectionInitialized) {
+    if (!connectionInitialized && !m_initialized.load(std::memory_order_relaxed)) {
         responseJson = createErrorResponse(request.id.value(), ErrorCodes::INVALID_REQUEST,
                                   "Not initialized", "");
         co_return;
     }
 
     try {
-        std::string name = request.params["name"];
-        Json arguments = request.params.contains("arguments") ?
-                        request.params["arguments"] : Json::object();
+        if (!request.hasParams) {
+            responseJson = createErrorResponse(request.id.value(), ErrorCodes::INVALID_PARAMS,
+                                      "Invalid parameters", "Missing params");
+            co_return;
+        }
+
+        JsonObject paramsObj;
+        if (!JsonHelper::GetObject(request.params, paramsObj)) {
+            responseJson = createErrorResponse(request.id.value(), ErrorCodes::INVALID_PARAMS,
+                                      "Invalid parameters", "Params must be object");
+            co_return;
+        }
+
+        std::string name;
+        if (!JsonHelper::GetString(paramsObj, "name", name)) {
+            responseJson = createErrorResponse(request.id.value(), ErrorCodes::INVALID_PARAMS,
+                                      "Invalid parameters", "Missing prompt name");
+            co_return;
+        }
+
+        JsonElement arguments = JsonHelper::EmptyObject();
+        JsonElement argsElement;
+        if (JsonHelper::GetElement(paramsObj, "arguments", argsElement)) {
+            arguments = argsElement;
+        }
 
         auto it = m_prompts.find(name);
         if (it == m_prompts.end()) {
@@ -459,10 +519,10 @@ kernel::Coroutine McpHttpServer::handlePromptsGet(const JsonRpcRequest& request,
             co_return;
         }
 
-        PromptGetter getter = it->second.getter;
+        McpHttpServer::PromptGetter getter = it->second.getter;
 
         // 调用提示获取函数（协程）
-        std::expected<Json, McpError> result;
+        std::expected<JsonString, McpError> result;
         co_await getter(name, arguments, result).wait();
 
         if (!result) {
@@ -486,33 +546,51 @@ kernel::Coroutine McpHttpServer::handlePromptsGet(const JsonRpcRequest& request,
     co_return;
 }
 
-Json McpHttpServer::handlePing(const JsonRpcRequest& request) {
+JsonString McpHttpServer::handlePing(const JsonRpcRequestView& request) {
     if (!request.id.has_value()) {
-        return Json::object();
+        return EmptyObjectString();
     }
 
-    JsonRpcResponse response;
-    response.id = request.id.value();
-    response.result = Json::object();
+    JsonRpcResponse response = protocol::makeResultResponse(
+        request.id.value(), EmptyObjectString());
 
     return response.toJson();
 }
 
-Json McpHttpServer::createErrorResponse(int64_t id, int code,
+JsonString McpHttpServer::createErrorResponse(int64_t id, int code,
                                         const std::string& message,
                                         const std::string& details) {
-    JsonRpcError error;
-    error.code = code;
-    error.message = message;
-    if (!details.empty()) {
-        error.data = details;
+    return protocol::makeErrorResponse(id, code, message, details).toJson();
+}
+
+const JsonString& McpHttpServer::getToolsListResult() {
+    if (m_toolsCacheDirty) {
+        m_toolsListCache = protocol::buildListResultFromMap(
+            m_tools, "tools",
+            [](const ToolInfo& info) -> const Tool& { return info.tool; });
+        m_toolsCacheDirty = false;
     }
+    return m_toolsListCache;
+}
 
-    JsonRpcResponse response;
-    response.id = id;
-    response.error = error.toJson();
+const JsonString& McpHttpServer::getResourcesListResult() {
+    if (m_resourcesCacheDirty) {
+        m_resourcesListCache = protocol::buildListResultFromMap(
+            m_resources, "resources",
+            [](const ResourceInfo& info) -> const Resource& { return info.resource; });
+        m_resourcesCacheDirty = false;
+    }
+    return m_resourcesListCache;
+}
 
-    return response.toJson();
+const JsonString& McpHttpServer::getPromptsListResult() {
+    if (m_promptsCacheDirty) {
+        m_promptsListCache = protocol::buildListResultFromMap(
+            m_prompts, "prompts",
+            [](const PromptInfo& info) -> const Prompt& { return info.prompt; });
+        m_promptsCacheDirty = false;
+    }
+    return m_promptsListCache;
 }
 
 } // namespace mcp

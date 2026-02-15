@@ -38,27 +38,35 @@ int main() {
 
     // 3. 调用加法工具
     std::cerr << "\n3. Calling 'add' tool..." << std::endl;
-    Json addArgs;
-    addArgs["a"] = 10;
-    addArgs["b"] = 20;
-    auto addResult = client.callTool("add", addArgs);
+    JsonWriter addArgsWriter;
+    addArgsWriter.StartObject();
+    addArgsWriter.Key("a");
+    addArgsWriter.Number(static_cast<int64_t>(10));
+    addArgsWriter.Key("b");
+    addArgsWriter.Number(static_cast<int64_t>(20));
+    addArgsWriter.EndObject();
+    auto addResult = client.callTool("add", addArgsWriter.TakeString());
     if (!addResult) {
         printError(addResult.error());
         return 1;
     }
-    std::cerr << "✓ Result: " << addResult.value().dump() << std::endl;
+    std::cerr << "✓ Result: " << addResult.value() << std::endl;
 
     // 4. 调用字符串连接工具
     std::cerr << "\n4. Calling 'concat' tool..." << std::endl;
-    Json concatArgs;
-    concatArgs["str1"] = "Hello, ";
-    concatArgs["str2"] = "World!";
-    auto concatResult = client.callTool("concat", concatArgs);
+    JsonWriter concatArgsWriter;
+    concatArgsWriter.StartObject();
+    concatArgsWriter.Key("str1");
+    concatArgsWriter.String("Hello, ");
+    concatArgsWriter.Key("str2");
+    concatArgsWriter.String("World!");
+    concatArgsWriter.EndObject();
+    auto concatResult = client.callTool("concat", concatArgsWriter.TakeString());
     if (!concatResult) {
         printError(concatResult.error());
         return 1;
     }
-    std::cerr << "✓ Result: " << concatResult.value().dump() << std::endl;
+    std::cerr << "✓ Result: " << concatResult.value() << std::endl;
 
     // 5. 获取资源列表
     std::cerr << "\n5. Listing resources..." << std::endl;
@@ -95,14 +103,17 @@ int main() {
 
     // 8. 获取提示
     std::cerr << "\n8. Getting prompt..." << std::endl;
-    Json promptArgs;
-    promptArgs["topic"] = "Artificial Intelligence";
-    auto promptResult = client.getPrompt("write_essay", promptArgs);
+    JsonWriter promptArgsWriter;
+    promptArgsWriter.StartObject();
+    promptArgsWriter.Key("topic");
+    promptArgsWriter.String("Artificial Intelligence");
+    promptArgsWriter.EndObject();
+    auto promptResult = client.getPrompt("write_essay", promptArgsWriter.TakeString());
     if (!promptResult) {
         printError(promptResult.error());
         return 1;
     }
-    std::cerr << "✓ Prompt: " << promptResult.value().dump(2) << std::endl;
+    std::cerr << "✓ Prompt: " << promptResult.value() << std::endl;
 
     // 9. Ping测试
     std::cerr << "\n9. Sending ping..." << std::endl;

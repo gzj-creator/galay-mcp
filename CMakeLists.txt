@@ -9,6 +9,43 @@ project(galay-mcp
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# 可选构建项
+option(BUILD_TESTS "Build test programs" ON)
+option(BUILD_BENCHMARKS "Build benchmark programs" ON)
+option(BUILD_EXAMPLES "Build example programs" ON)
+option(BUILD_MODULE_EXAMPLES "Build C++23 module(import/export) examples" ON)
+
+# C++23 命名模块支持能力检测
+set(GALAY_MCP_MODULES_SUPPORTED TRUE)
+set(GALAY_MCP_MODULES_DISABLE_REASON "")
+
+if(CMAKE_VERSION VERSION_LESS 3.28)
+    set(GALAY_MCP_MODULES_SUPPORTED FALSE)
+    set(GALAY_MCP_MODULES_DISABLE_REASON "CMake >= 3.28 is required")
+endif()
+
+if(GALAY_MCP_MODULES_SUPPORTED)
+    if(NOT (CMAKE_GENERATOR MATCHES "Ninja" OR CMAKE_GENERATOR MATCHES "Visual Studio"))
+        set(GALAY_MCP_MODULES_SUPPORTED FALSE)
+        set(GALAY_MCP_MODULES_DISABLE_REASON
+            "generator '${CMAKE_GENERATOR}' does not support C++ module scanning")
+    endif()
+endif()
+
+if(GALAY_MCP_MODULES_SUPPORTED AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    find_program(GALAY_MCP_CLANG_SCAN_DEPS_EXECUTABLE NAMES clang-scan-deps)
+    if(NOT GALAY_MCP_CLANG_SCAN_DEPS_EXECUTABLE)
+        set(GALAY_MCP_MODULES_SUPPORTED FALSE)
+        set(GALAY_MCP_MODULES_DISABLE_REASON "clang-scan-deps not found")
+    endif()
+endif()
+
+if(BUILD_MODULE_EXAMPLES AND NOT GALAY_MCP_MODULES_SUPPORTED)
+    message(WARNING
+        "BUILD_MODULE_EXAMPLES requested but disabled: ${GALAY_MCP_MODULES_DISABLE_REASON}")
+    set(BUILD_MODULE_EXAMPLES OFF CACHE BOOL "Build C++23 module(import/export) examples" FORCE)
+endif()
+
 # 设置输出目录
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
@@ -18,19 +55,16 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 add_subdirectory(galay-mcp)
 
 # 可选：构建测试
-option(BUILD_TESTS "Build test programs" ON)
 if(BUILD_TESTS)
     add_subdirectory(test)
 endif()
 
 # 可选：构建性能测试
-option(BUILD_BENCHMARKS "Build benchmark programs" ON)
 if(BUILD_BENCHMARKS)
     add_subdirectory(benchmark)
 endif()
 
 # 可选：构建示例
-option(BUILD_EXAMPLES "Build example programs" ON)
 if(BUILD_EXAMPLES)
     add_subdirectory(example)
 endif()

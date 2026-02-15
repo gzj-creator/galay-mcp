@@ -1,8 +1,9 @@
 #ifndef GALAY_MCP_CLIENT_MCPSTDIOCLIENT_H
 #define GALAY_MCP_CLIENT_MCPSTDIOCLIENT_H
 
-#include "../common/McpBase.h"
-#include "../common/McpError.h"
+#include "galay-mcp/common/McpBase.h"
+#include "galay-mcp/common/McpError.h"
+#include "galay-mcp/common/McpJsonParser.h"
 #include <atomic>
 #include <mutex>
 #include <iostream>
@@ -43,8 +44,8 @@ public:
      * @param arguments 工具参数
      * @return 成功返回工具执行结果，失败返回错误信息
      */
-    std::expected<Json, McpError> callTool(const std::string& toolName,
-                                           const Json& arguments);
+    std::expected<JsonString, McpError> callTool(const std::string& toolName,
+                                                 const JsonString& arguments);
 
     /**
      * @brief 获取工具列表
@@ -77,8 +78,8 @@ public:
      * @param arguments 提示参数
      * @return 成功返回提示内容，失败返回错误信息
      */
-    std::expected<Json, McpError> getPrompt(const std::string& name,
-                                            const Json& arguments);
+    std::expected<JsonString, McpError> getPrompt(const std::string& name,
+                                                  const JsonString& arguments);
 
     /**
      * @brief 发送ping请求
@@ -108,18 +109,18 @@ public:
 
 private:
     // 发送请求并等待响应
-    std::expected<Json, McpError> sendRequest(const std::string& method,
-                                              const Json& params);
+    std::expected<JsonString, McpError> sendRequest(const std::string& method,
+                                                    const std::optional<JsonString>& params);
 
     // 发送通知（不等待响应）
     std::expected<void, McpError> sendNotification(const std::string& method,
-                                                   const Json& params);
+                                                   const std::optional<JsonString>& params);
 
     // 读取一行JSON消息
-    std::expected<Json, McpError> readMessage();
+    std::expected<std::string, McpError> readMessage();
 
     // 写入一行JSON消息
-    std::expected<void, McpError> writeMessage(const Json& message);
+    std::expected<void, McpError> writeMessage(const JsonString& message);
 
     // 生成请求ID
     int64_t generateRequestId();

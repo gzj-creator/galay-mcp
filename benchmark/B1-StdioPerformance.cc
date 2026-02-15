@@ -75,19 +75,19 @@ struct PerformanceStats {
     }
 
     void printReport(const std::string& testName) const {
-        std::cout << "\n=== " << testName << " Performance Report ===" << std::endl;
-        std::cout << std::fixed << std::setprecision(2);
-        std::cout << "Total Requests:  " << totalRequests << std::endl;
-        std::cout << "Total Time:      " << totalTimeMs << " ms" << std::endl;
-        std::cout << "Avg Latency:     " << const_cast<PerformanceStats*>(this)->getAvgLatencyMs() << " ms" << std::endl;
-        std::cout << "Median Latency:  " << const_cast<PerformanceStats*>(this)->getMedianLatencyMs() << " ms" << std::endl;
-        std::cout << "Min Latency:     " << minLatencyMs << " ms" << std::endl;
-        std::cout << "Max Latency:     " << maxLatencyMs << " ms" << std::endl;
-        std::cout << "P95 Latency:     " << const_cast<PerformanceStats*>(this)->getP95LatencyMs() << " ms" << std::endl;
-        std::cout << "P99 Latency:     " << const_cast<PerformanceStats*>(this)->getP99LatencyMs() << " ms" << std::endl;
-        std::cout << "Std Dev:         " << getStdDevMs() << " ms" << std::endl;
+        std::cerr << "\n=== " << testName << " Performance Report ===" << std::endl;
+        std::cerr << std::fixed << std::setprecision(2);
+        std::cerr << "Total Requests:  " << totalRequests << std::endl;
+        std::cerr << "Total Time:      " << totalTimeMs << " ms" << std::endl;
+        std::cerr << "Avg Latency:     " << const_cast<PerformanceStats*>(this)->getAvgLatencyMs() << " ms" << std::endl;
+        std::cerr << "Median Latency:  " << const_cast<PerformanceStats*>(this)->getMedianLatencyMs() << " ms" << std::endl;
+        std::cerr << "Min Latency:     " << minLatencyMs << " ms" << std::endl;
+        std::cerr << "Max Latency:     " << maxLatencyMs << " ms" << std::endl;
+        std::cerr << "P95 Latency:     " << const_cast<PerformanceStats*>(this)->getP95LatencyMs() << " ms" << std::endl;
+        std::cerr << "P99 Latency:     " << const_cast<PerformanceStats*>(this)->getP99LatencyMs() << " ms" << std::endl;
+        std::cerr << "Std Dev:         " << getStdDevMs() << " ms" << std::endl;
         if (totalTimeMs > 0) {
-            std::cout << "Throughput:      " << (totalRequests * 1000.0 / totalTimeMs) << " req/s" << std::endl;
+            std::cerr << "Throughput:      " << (totalRequests * 1000.0 / totalTimeMs) << " req/s" << std::endl;
         }
     }
 };
@@ -96,12 +96,17 @@ struct PerformanceStats {
 void benchmarkToolCall(McpStdioClient& client, size_t iterations) {
     PerformanceStats stats;
 
-    std::cout << "\nBenchmarking tool calls (" << iterations << " iterations)..." << std::endl;
+    std::cerr << "\nBenchmarking tool calls (" << iterations << " iterations)..." << std::endl;
 
     for (size_t i = 0; i < iterations; ++i) {
-        Json args;
-        args["a"] = static_cast<int>(i);
-        args["b"] = static_cast<int>(i + 1);
+        JsonWriter argsWriter;
+        argsWriter.StartObject();
+        argsWriter.Key("a");
+        argsWriter.Number(static_cast<int64_t>(i));
+        argsWriter.Key("b");
+        argsWriter.Number(static_cast<int64_t>(i + 1));
+        argsWriter.EndObject();
+        JsonString args = argsWriter.TakeString();
 
         auto start = high_resolution_clock::now();
         auto result = client.callTool("add", args);
@@ -117,7 +122,7 @@ void benchmarkToolCall(McpStdioClient& client, size_t iterations) {
 
         // 进度显示
         if ((i + 1) % 100 == 0) {
-            std::cout << "Progress: " << (i + 1) << "/" << iterations << "\r" << std::flush;
+            std::cerr << "Progress: " << (i + 1) << "/" << iterations << "\r" << std::flush;
         }
     }
 
@@ -128,7 +133,7 @@ void benchmarkToolCall(McpStdioClient& client, size_t iterations) {
 void benchmarkResourceRead(McpStdioClient& client, size_t iterations) {
     PerformanceStats stats;
 
-    std::cout << "\nBenchmarking resource reads (" << iterations << " iterations)..." << std::endl;
+    std::cerr << "\nBenchmarking resource reads (" << iterations << " iterations)..." << std::endl;
 
     for (size_t i = 0; i < iterations; ++i) {
         auto start = high_resolution_clock::now();
@@ -145,7 +150,7 @@ void benchmarkResourceRead(McpStdioClient& client, size_t iterations) {
 
         // 进度显示
         if ((i + 1) % 100 == 0) {
-            std::cout << "Progress: " << (i + 1) << "/" << iterations << "\r" << std::flush;
+            std::cerr << "Progress: " << (i + 1) << "/" << iterations << "\r" << std::flush;
         }
     }
 
@@ -158,7 +163,7 @@ void benchmarkListOperations(McpStdioClient& client, size_t iterations) {
     PerformanceStats resourcesStats;
     PerformanceStats promptsStats;
 
-    std::cout << "\nBenchmarking list operations (" << iterations << " iterations)..." << std::endl;
+    std::cerr << "\nBenchmarking list operations (" << iterations << " iterations)..." << std::endl;
 
     for (size_t i = 0; i < iterations; ++i) {
         // 测试 listTools
@@ -196,7 +201,7 @@ void benchmarkListOperations(McpStdioClient& client, size_t iterations) {
 
         // 进度显示
         if ((i + 1) % 100 == 0) {
-            std::cout << "Progress: " << (i + 1) << "/" << iterations << "\r" << std::flush;
+            std::cerr << "Progress: " << (i + 1) << "/" << iterations << "\r" << std::flush;
         }
     }
 
@@ -209,7 +214,7 @@ void benchmarkListOperations(McpStdioClient& client, size_t iterations) {
 void benchmarkPing(McpStdioClient& client, size_t iterations) {
     PerformanceStats stats;
 
-    std::cout << "\nBenchmarking ping (" << iterations << " iterations)..." << std::endl;
+    std::cerr << "\nBenchmarking ping (" << iterations << " iterations)..." << std::endl;
 
     for (size_t i = 0; i < iterations; ++i) {
         auto start = high_resolution_clock::now();
@@ -226,7 +231,7 @@ void benchmarkPing(McpStdioClient& client, size_t iterations) {
 
         // 进度显示
         if ((i + 1) % 100 == 0) {
-            std::cout << "Progress: " << (i + 1) << "/" << iterations << "\r" << std::flush;
+            std::cerr << "Progress: " << (i + 1) << "/" << iterations << "\r" << std::flush;
         }
     }
 
@@ -234,42 +239,50 @@ void benchmarkPing(McpStdioClient& client, size_t iterations) {
 }
 
 void printSystemInfo() {
-    std::cout << "\n=== System Information ===" << std::endl;
-    std::cout << "Test Date: " << __DATE__ << " " << __TIME__ << std::endl;
+    std::cerr << "\n=== System Information ===" << std::endl;
+    std::cerr << "Test Date: " << __DATE__ << " " << __TIME__ << std::endl;
 
     // 获取系统信息（简化版）
     #ifdef __APPLE__
-    std::cout << "Platform: macOS" << std::endl;
+    std::cerr << "Platform: macOS" << std::endl;
     #elif __linux__
-    std::cout << "Platform: Linux" << std::endl;
+    std::cerr << "Platform: Linux" << std::endl;
     #else
-    std::cout << "Platform: Unknown" << std::endl;
+    std::cerr << "Platform: Unknown" << std::endl;
     #endif
 
-    std::cout << "Compiler: " << __VERSION__ << std::endl;
-    std::cout << "C++ Standard: " << __cplusplus << std::endl;
+    std::cerr << "Compiler: " << __VERSION__ << std::endl;
+    std::cerr << "C++ Standard: " << __cplusplus << std::endl;
 }
 
-int main() {
+int main(int argc, char* argv[]) {
     printSystemInfo();
 
-    std::cout << "\n=== Stdio MCP Performance Benchmark ===" << std::endl;
-    std::cout << "This benchmark requires a running MCP server on stdin/stdout" << std::endl;
-    std::cout << "Run with: ./B1-StdioPerformance | ./T2-StdioServer" << std::endl;
+    std::cerr << "\n=== Stdio MCP Performance Benchmark ===" << std::endl;
+    std::cerr << "This benchmark requires a running MCP server on stdin/stdout" << std::endl;
+    std::cerr << "Run with: ./B1-StdioPerformance [iterations] | ./T2-StdioServer" << std::endl;
 
     McpStdioClient client;
 
     // 初始化
-    std::cout << "\nInitializing client..." << std::endl;
+    std::cerr << "\nInitializing client..." << std::endl;
     auto initResult = client.initialize("benchmark-client", "1.0.0");
     if (!initResult) {
         std::cerr << "Failed to initialize: " << initResult.error().toString() << std::endl;
         return 1;
     }
-    std::cout << "Connected to: " << client.getServerInfo().name << std::endl;
+    std::cerr << "Connected to: " << client.getServerInfo().name << std::endl;
 
     // 运行各项性能测试
-    const size_t iterations = 1000;
+    size_t iterations = 1000;
+    if (argc > 1) {
+        try {
+            iterations = static_cast<size_t>(std::stoul(argv[1]));
+        } catch (const std::exception&) {
+            std::cerr << "Invalid iterations value, using default 1000" << std::endl;
+            iterations = 1000;
+        }
+    }
 
     benchmarkPing(client, iterations);
     benchmarkToolCall(client, iterations);
@@ -279,8 +292,8 @@ int main() {
     // 断开连接
     client.disconnect();
 
-    std::cout << "\n=== Benchmark Complete ===" << std::endl;
-    std::cout << "\nNote: Save these results to docs/B1-Stdio性能测试.md" << std::endl;
+    std::cerr << "\n=== Benchmark Complete ===" << std::endl;
+    std::cerr << "\nNote: Save these results to docs/B1-Stdio性能测试.md" << std::endl;
 
     return 0;
 }

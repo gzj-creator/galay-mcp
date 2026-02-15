@@ -2,6 +2,19 @@
 
 基于 Galay-Kernel 框架实现的 MCP (Model Context Protocol) 协议库。
 
+## 文档导航
+
+建议先阅读 `docs/4-性能测试.md` 了解总体结果，再查看各专项报告：
+
+1. [标准输入输出MCP测试](docs/T1-标准输入输出MCP测试.md)
+2. [Stdio服务器测试](docs/T2-Stdio服务器测试.md)
+3. [HTTP客户端测试](docs/T3-HTTP客户端测试.md)
+4. [HTTP服务器测试](docs/T4-HTTP服务器测试.md)
+5. [性能测试总览](docs/4-性能测试.md)
+6. [B1-Stdio性能测试报告](docs/B1-Stdio性能测试.md)
+7. [B2-HTTP性能测试报告](docs/B2-HTTP性能测试.md)
+8. [B3-并发请求压测报告](docs/B3-并发请求压测.md)
+
 ## 📁 项目结构
 
 ```
@@ -10,6 +23,7 @@ galay-mcp/
 ├── README.md                   # 项目说明（本文件）
 ├── galay-mcp/                  # 核心库
 │   ├── CMakeLists.txt          # 库构建配置
+│   ├── module/                 # C++23 命名模块接口（galay.mcp.cppm）
 │   ├── common/                 # 通用模块
 │   │   ├── McpBase.h           # 基础数据结构
 │   │   ├── McpError.h          # 错误处理
@@ -20,10 +34,14 @@ galay-mcp/
 │   └── server/                 # 服务器实现
 │       ├── McpStdioServer.h    # 标准输入输出服务器
 │       └── McpStdioServer.cc   # 标准输入输出服务器实现
-├── test/                       # 测试和示例
+├── example/                    # 示例
+│   ├── common/                 # include/import 共用示例主体
+│   ├── include/                # #include 版本示例
+│   └── import/                 # import 版本示例
+├── test/                       # 测试
 │   ├── CMakeLists.txt
-│   ├── test_stdio_server.cc    # 服务器示例
-│   └── test_stdio_client.cc    # 客户端示例
+│   ├── T1-StdioClient.cc
+│   └── ...
 ├── benchmark/                  # 性能测试
 ├── docs/                       # 文档
 ├── scripts/                    # 脚本
@@ -39,13 +57,13 @@ galay-mcp/
 - ✅ **类型安全**：使用 C++23 和 std::expected 进行错误处理
 - ✅ **标准兼容**：遵循 MCP 2024-11-05 规范
 - ✅ **高性能**：基于 Galay-Kernel 框架的高效实现
-- 🚧 **HTTP 传输**：计划支持（待实现）
+- ✅ **HTTP 传输**：已支持（基于 Galay-HTTP）
 
 ## 📦 依赖
 
 - C++23 编译器（GCC 13+, Clang 16+）
 - [Galay-Kernel](https://github.com/GaiaKernel/galay) 框架
-- [nlohmann/json](https://github.com/nlohmann/json) JSON 库
+- [simdjson](https://github.com/simdjson/simdjson) JSON 解析库
 
 ## 🔧 构建
 
@@ -55,18 +73,13 @@ galay-mcp/
 
 ```bash
 # 1. 安装 Galay-Kernel 框架（参考 Galay 项目的安装说明）
-# 2. 安装 nlohmann/json
+# 2. 安装 simdjson
 
 # macOS (使用 Homebrew)
-brew install nlohmann-json
+brew install simdjson
 
 # Ubuntu/Debian
-sudo apt-get install nlohmann-json3-dev
-
-# 或者手动安装 header-only 版本到 /usr/local/include
-cd /usr/local/include
-sudo mkdir -p nlohmann
-sudo curl -o nlohmann/json.hpp https://github.com/nlohmann/json/releases/download/v3.11.3/json.hpp
+sudo apt-get install libsimdjson-dev
 ```
 
 ### 编译步骤
@@ -92,10 +105,32 @@ sudo make install
 cmake -DBUILD_TESTS=OFF ..
 
 # 不构建性能测试
-cmake -DBUILD_BENCHMARK=OFF ..
+cmake -DBUILD_BENCHMARKS=OFF ..
+
+# 构建 C++23 module(import/export) 示例（支持环境会自动开启）
+cmake -DBUILD_MODULE_EXAMPLES=ON ..
 
 # 安装到系统
 cmake --build . --target install
+```
+
+### C++23 模块（import/export）
+
+- 模块接口文件统一为 `.cppm`，当前接口：`galay-mcp/module/galay.mcp.cppm`
+- import 示例目标：`E1-BasicStdioUsageImport`、`E2-BasicHttpUsageImport`
+- 构建限制：
+  - 需要 CMake `>= 3.28`
+  - 生成器需为 `Ninja` 或 `Visual Studio`
+  - Clang 工具链需要 `clang-scan-deps`
+  - 不满足条件时，`BUILD_MODULE_EXAMPLES` 会自动降级为 `OFF`，不影响 include 版本构建
+
+```cpp
+import galay.mcp;
+```
+
+```bash
+cmake -S . -B build-mod -G Ninja -DBUILD_MODULE_EXAMPLES=ON
+cmake --build build-mod -j
 ```
 
 ## 🚀 快速开始
@@ -104,15 +139,38 @@ cmake --build . --target install
 
 ```cpp
 #include "galay-mcp/server/McpStdioServer.h"
+#include "galay-mcp/common/McpSchemaBuilder.h"
 
 McpStdioServer server;
 
 // 添加工具
-server.addTool("add", "Add two numbers",
-    [](const nlohmann::json& args) -> std::expected<nlohmann::json, McpError> {
-        int a = args["a"];
-        int b = args["b"];
-        return nlohmann::json{{"result", a + b}};
+auto schema = SchemaBuilder()
+    .addNumber("a", "First number", true)
+    .addNumber("b", "Second number", true)
+    .build();
+
+server.addTool("add", "Add two numbers", schema,
+    [](const JsonElement& args) -> std::expected<JsonString, McpError> {
+        JsonObject obj;
+        if (!JsonHelper::GetObject(args, obj)) {
+            return std::unexpected(McpError::invalidParams("Invalid arguments"));
+        }
+
+        auto aVal = obj["a"];
+        auto bVal = obj["b"];
+        if (aVal.error() || bVal.error()) {
+            return std::unexpected(McpError::invalidParams("Missing parameters"));
+        }
+
+        double a = aVal.is_double() ? aVal.get_double().value() : static_cast<double>(aVal.get_int64().value());
+        double b = bVal.is_double() ? bVal.get_double().value() : static_cast<double>(bVal.get_int64().value());
+
+        JsonWriter writer;
+        writer.StartObject();
+        writer.Key("result");
+        writer.Number(a + b);
+        writer.EndObject();
+        return writer.TakeString();
     }
 );
 
@@ -134,8 +192,14 @@ if (!init_result) {
 }
 
 // 调用工具
-nlohmann::json args = {{"a", 10}, {"b", 20}};
-auto result = client.callTool("add", args);
+JsonWriter argsWriter;
+argsWriter.StartObject();
+argsWriter.Key("a");
+argsWriter.Number(static_cast<int64_t>(10));
+argsWriter.Key("b");
+argsWriter.Number(static_cast<int64_t>(20));
+argsWriter.EndObject();
+auto result = client.callTool("add", argsWriter.TakeString());
 if (result) {
     std::cout << "Result: " << result.value() << std::endl;
 }
@@ -176,6 +240,8 @@ cd build
 
 ## 📚 API 文档
 
+> 说明：`JsonString` 为原始 JSON 字符串，`JsonElement` 为 simdjson 的只读 DOM 视图。
+
 ### McpStdioServer
 
 ```cpp
@@ -184,6 +250,7 @@ public:
     // 添加工具
     void addTool(const std::string& name,
                  const std::string& description,
+                 const JsonString& inputSchema,
                  ToolHandler handler);
 
     // 添加资源
@@ -193,7 +260,9 @@ public:
 
     // 添加提示
     void addPrompt(const std::string& name,
-                   const std::string& description);
+                   const std::string& description,
+                   const std::vector<PromptArgument>& arguments,
+                   PromptGetter getter);
 
     // 运行服务器（阻塞）
     void run();
@@ -214,15 +283,15 @@ public:
         const std::string& clientVersion);
 
     // 调用工具
-    std::expected<nlohmann::json, McpError> callTool(
+    std::expected<JsonString, McpError> callTool(
         const std::string& toolName,
-        const nlohmann::json& arguments);
+        const JsonString& arguments);
 
     // 获取工具列表
-    std::expected<std::vector<std::string>, McpError> listTools();
+    std::expected<std::vector<Tool>, McpError> listTools();
 
     // 获取资源列表
-    std::expected<std::vector<std::string>, McpError> listResources();
+    std::expected<std::vector<Resource>, McpError> listResources();
 
     // 断开连接
     void disconnect();
@@ -236,7 +305,7 @@ public:
     ↓
 协议层：MCP JSON-RPC 2.0 消息处理
     ↓
-编解码：nlohmann::json（JSON 序列化）
+编解码：simdjson（解析）+ JsonWriter（序列化）
     ↓
 传输层：stdin/stdout（标准输入输出流）
 ```
@@ -254,7 +323,7 @@ public:
 - [x] 简化 API 设计
 - [ ] 完整的单元测试
 - [ ] 性能测试和优化
-- [ ] HTTP 传输支持（基于 Galay-Kernel）
+- [x] HTTP 传输支持（基于 Galay-HTTP）
 - [ ] WebSocket 传输支持
 - [ ] 文档完善
 
@@ -270,5 +339,5 @@ MIT License
 
 本项目基于以下优秀开源项目：
 - [Galay-Kernel](https://github.com/GaiaKernel/galay) - 高性能 C++ 框架
-- [nlohmann/json](https://github.com/nlohmann/json) - JSON 库
+- [simdjson](https://github.com/simdjson/simdjson) - JSON 解析库
 - [MCP](https://modelcontextprotocol.io/) - Model Context Protocol 规范

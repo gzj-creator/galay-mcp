@@ -118,11 +118,15 @@ Coroutine workerCoroutine(McpHttpClient& client, const std::string& url,
 
     // 执行请求
     for (size_t i = 0; i < requestsPerWorker; ++i) {
-        Json args;
-        args["message"] = "Concurrent test " + std::to_string(i);
+        JsonWriter argsWriter;
+        argsWriter.StartObject();
+        argsWriter.Key("message");
+        argsWriter.String("Concurrent test " + std::to_string(i));
+        argsWriter.EndObject();
+        JsonString args = argsWriter.TakeString();
 
         auto start = high_resolution_clock::now();
-        std::expected<Json, McpError> callResult;
+        std::expected<JsonString, McpError> callResult;
         co_await client.callTool("echo", args, callResult).wait();
         auto end = high_resolution_clock::now();
 
@@ -151,7 +155,7 @@ void runConcurrentTest(const std::string& url, size_t numWorkers, size_t request
     std::atomic<int> completedWorkers(0);
 
     // 创建Runtime
-    Runtime runtime(LoadBalanceStrategy::ROUND_ROBIN, 4, 2);
+    Runtime runtime(4, 2);
     runtime.start();
 
     // 创建客户端和协程
