@@ -1,16 +1,3 @@
-/**
- * @file E2-BasicHttpUsage.cc
- * @brief 基础HTTP MCP使用示例
- * @details 演示如何使用McpHttpClient和McpHttpServer进行基本的MCP通信
- */
-
-#include "galay-mcp/client/McpHttpClient.h"
-#include "galay-mcp/server/McpHttpServer.h"
-#include "galay-kernel/kernel/Runtime.h"
-#include <iostream>
-#include <chrono>
-#include <thread>
-
 using namespace galay::mcp;
 using namespace galay::kernel;
 
@@ -27,30 +14,27 @@ void runHttpServer() {
     server.setServerInfo("example-http-server", "1.0.0");
 
     // 添加一个简单的计算器工具
+    auto calcSchema = SchemaBuilder()
+        .addEnum("operation", "运算类型", {"add", "subtract", "multiply", "divide"}, true)
+        .addNumber("a", "第一个操作数", true)
+        .addNumber("b", "第二个操作数", true)
+        .build();
     server.addTool(
         "calculate",
         "执行基本的数学计算",
-        Json::object({
-            {"type", "object"},
-            {"properties", Json::object({
-                {"operation", Json::object({
-                    {"type", "string"},
-                    {"enum", Json::array({"add", "subtract", "multiply", "divide"})},
-                    {"description", "运算类型"}
-                })},
-                {"a", Json::object({
-                    {"type", "number"},
-                    {"description", "第一个操作数"}
-                })},
-                {"b", Json::object({
-                    {"type", "number"},
-                    {"description", "第二个操作数"}
-                })}
-            })},
-            {"required", Json::array({"operation", "a", "b"})}
-        }),
-        [](const Json& args, std::expected<Json, McpError>& result) -> Coroutine {
-            if (!args.contains("operation") || !args.contains("a") || !args.contains("b")) {
+        calcSchema,
+        [](const JsonElement& args, std::expected<JsonString, McpError>& result) -> Coroutine {
+            JsonObject obj;
+            if (!JsonHelper::GetObject(args, obj)) {
+                result = std::unexpected(McpError(
+                    McpErrorCode::InvalidParams,
+                    "Invalid arguments"
+                ));
+                co_return;
+            }
+
+            std::string op;
+            if (!JsonHelper::GetString(obj, "operation", op)) {
                 result = std::unexpected(McpError(
                     McpErrorCode::InvalidParams,
                     "Missing required parameters"
@@ -58,10 +42,43 @@ void runHttpServer() {
                 co_return;
             }
 
-            std::string op = args["operation"];
-            double a = args["a"];
-            double b = args["b"];
-            double answer = 0;
+            auto aVal = obj["a"];
+            auto bVal = obj["b"];
+            if (aVal.error() || bVal.error()) {
+                result = std::unexpected(McpError(
+                    McpErrorCode::InvalidParams,
+                    "Missing required parameters"
+                ));
+                co_return;
+            }
+
+            double a = 0.0;
+            double b = 0.0;
+            if (aVal.is_double()) {
+                a = aVal.get_double().value();
+            } else if (aVal.is_int64()) {
+                a = static_cast<double>(aVal.get_int64().value());
+            } else {
+                result = std::unexpected(McpError(
+                    McpErrorCode::InvalidParams,
+                    "Invalid parameter 'a'"
+                ));
+                co_return;
+            }
+
+            if (bVal.is_double()) {
+                b = bVal.get_double().value();
+            } else if (bVal.is_int64()) {
+                b = static_cast<double>(bVal.get_int64().value());
+            } else {
+                result = std::unexpected(McpError(
+                    McpErrorCode::InvalidParams,
+                    "Invalid parameter 'b'"
+                ));
+                co_return;
+            }
+
+            double answer = 0.0;
 
             if (op == "add") {
                 answer = a + b;
@@ -86,10 +103,14 @@ void runHttpServer() {
                 co_return;
             }
 
-            Json res;
-            res["result"] = answer;
-            res["operation"] = op;
-            result = res;
+            JsonWriter resWriter;
+            resWriter.StartObject();
+            resWriter.Key("result");
+            resWriter.Number(answer);
+            resWriter.Key("operation");
+            resWriter.String(op);
+            resWriter.EndObject();
+            result = resWriter.TakeString();
             co_return;
         }
     );
@@ -109,16 +130,25 @@ void runHttpServer() {
     );
 
     // 添加一个提示
+    auto promptArgs = PromptArgumentBuilder()
+        .addArgument("language", "编程语言", true)
+        .build();
     server.addPrompt(
         "code_review",
         "生成代码审查提示",
-        {Json::object({
-            {"name", "language"},
-            {"description", "编程语言"},
-            {"required", true}
-        })},
-        [](const std::string& name, const Json& args, std::expected<Json, McpError>& result) -> Coroutine {
-            if (!args.contains("language")) {
+        promptArgs,
+        [](const std::string& name, const JsonElement& args, std::expected<JsonString, McpError>& result) -> Coroutine {
+            JsonObject obj;
+            if (!JsonHelper::GetObject(args, obj)) {
+                result = std::unexpected(McpError(
+                    McpErrorCode::InvalidParams,
+                    "Invalid arguments"
+                ));
+                co_return;
+            }
+
+            std::string lang;
+            if (!JsonHelper::GetString(obj, "language", lang)) {
                 result = std::unexpected(McpError(
                     McpErrorCode::InvalidParams,
                     "Missing 'language' parameter"
@@ -126,16 +156,21 @@ void runHttpServer() {
                 co_return;
             }
 
-            std::string lang = args["language"];
-            Json res;
-            res["description"] = "Code review prompt for " + lang;
-            res["messages"] = Json::array({
-                Json::object({
-                    {"role", "user"},
-                    {"content", "Please review this " + lang + " code for best practices and potential issues."}
-                })
-            });
-            result = res;
+            JsonWriter resWriter;
+            resWriter.StartObject();
+            resWriter.Key("description");
+            resWriter.String("Code review prompt for " + lang);
+            resWriter.Key("messages");
+            resWriter.StartArray();
+            resWriter.StartObject();
+            resWriter.Key("role");
+            resWriter.String("user");
+            resWriter.Key("content");
+            resWriter.String("Please review this " + lang + " code for best practices and potential issues.");
+            resWriter.EndObject();
+            resWriter.EndArray();
+            resWriter.EndObject();
+            result = resWriter.TakeString();
             co_return;
         }
     );
@@ -181,14 +216,36 @@ Coroutine runClientTest(McpHttpClient& client, const std::string& url, int& exit
 
     // 调用计算器工具
     std::cout << "\n=== Calling Calculator Tool ===" << std::endl;
-    Json calcArgs;
-    calcArgs["operation"] = "multiply";
-    calcArgs["a"] = 12;
-    calcArgs["b"] = 8;
-    std::expected<Json, McpError> calcResult;
-    co_await client.callTool("calculate", calcArgs, calcResult).wait();
+    JsonWriter calcArgsWriter;
+    calcArgsWriter.StartObject();
+    calcArgsWriter.Key("operation");
+    calcArgsWriter.String("multiply");
+    calcArgsWriter.Key("a");
+    calcArgsWriter.Number(static_cast<int64_t>(12));
+    calcArgsWriter.Key("b");
+    calcArgsWriter.Number(static_cast<int64_t>(8));
+    calcArgsWriter.EndObject();
+    std::expected<JsonString, McpError> calcResult;
+    co_await client.callTool("calculate", calcArgsWriter.TakeString(), calcResult).wait();
     if (calcResult) {
-        std::cout << "12 * 8 = " << calcResult.value()["result"] << std::endl;
+        auto docExp = JsonDocument::Parse(calcResult.value());
+        if (docExp) {
+            JsonObject obj;
+            if (JsonHelper::GetObject(docExp.value().Root(), obj)) {
+                auto resultVal = obj["result"];
+                if (!resultVal.error()) {
+                    if (resultVal.is_double()) {
+                        std::cout << "12 * 8 = " << resultVal.get_double().value() << std::endl;
+                    } else if (resultVal.is_int64()) {
+                        std::cout << "12 * 8 = " << resultVal.get_int64().value() << std::endl;
+                    } else {
+                        std::cout << "Result: " << calcResult.value() << std::endl;
+                    }
+                }
+            }
+        } else {
+            std::cout << "Result: " << calcResult.value() << std::endl;
+        }
     }
 
     // 列出资源
@@ -221,12 +278,15 @@ Coroutine runClientTest(McpHttpClient& client, const std::string& url, int& exit
 
     // 获取提示
     std::cout << "\n=== Getting Code Review Prompt ===" << std::endl;
-    Json promptArgs;
-    promptArgs["language"] = "C++";
-    std::expected<Json, McpError> promptResult;
-    co_await client.getPrompt("code_review", promptArgs, promptResult).wait();
+    JsonWriter promptArgsWriter;
+    promptArgsWriter.StartObject();
+    promptArgsWriter.Key("language");
+    promptArgsWriter.String("C++");
+    promptArgsWriter.EndObject();
+    std::expected<JsonString, McpError> promptResult;
+    co_await client.getPrompt("code_review", promptArgsWriter.TakeString(), promptResult).wait();
     if (promptResult) {
-        std::cout << "Prompt: " << promptResult.value().dump(2) << std::endl;
+        std::cout << "Prompt: " << promptResult.value() << std::endl;
     }
 
     // 测试ping
@@ -252,7 +312,7 @@ Coroutine runClientTest(McpHttpClient& client, const std::string& url, int& exit
  */
 void runHttpClient(const std::string& url) {
     // 创建Runtime
-    Runtime runtime(LoadBalanceStrategy::ROUND_ROBIN, 1, 1);
+    Runtime runtime(1, 1);
     runtime.start();
 
     // 创建客户端

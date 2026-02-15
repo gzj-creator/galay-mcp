@@ -1,5 +1,5 @@
-#include "McpError.h"
-#include "McpBase.h"
+#include "galay-mcp/common/McpError.h"
+#include "galay-mcp/common/McpBase.h"
 #include <sstream>
 
 namespace galay {

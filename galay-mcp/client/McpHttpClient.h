@@ -1,8 +1,8 @@
 #ifndef GALAY_MCP_CLIENT_MCPHTTPCLIENT_H
 #define GALAY_MCP_CLIENT_MCPHTTPCLIENT_H
 
-#include "../common/McpBase.h"
-#include "../common/McpError.h"
+#include "galay-mcp/common/McpBase.h"
+#include "galay-mcp/common/McpError.h"
 #include "galay-http/kernel/http/HttpClient.h"
 #include "galay-kernel/kernel/Runtime.h"
 #include "galay-kernel/kernel/Coroutine.h"
@@ -46,8 +46,8 @@ public:
      * @brief 调用工具（协程）
      */
     kernel::Coroutine callTool(std::string toolName,
-                                Json arguments,
-                                std::expected<Json, McpError>& result);
+                                JsonString arguments,
+                                std::expected<JsonString, McpError>& result);
 
     /**
      * @brief 获取工具列表（协程）
@@ -74,8 +74,8 @@ public:
      * @brief 获取提示（协程）
      */
     kernel::Coroutine getPrompt(std::string name,
-                                 Json arguments,
-                                 std::expected<Json, McpError>& result);
+                                 JsonString arguments,
+                                 std::expected<JsonString, McpError>& result);
 
     /**
      * @brief 发送ping请求（协程）
@@ -96,8 +96,8 @@ public:
 private:
     // 发送请求（协程）
     kernel::Coroutine sendRequest(std::string method,
-                                   Json params,
-                                   std::expected<Json, McpError>& result);
+                                   std::optional<JsonString> params,
+                                   std::expected<JsonString, McpError>& result);
 
     int64_t generateRequestId();
 

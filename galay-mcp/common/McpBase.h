@@ -1,18 +1,16 @@
 #ifndef GALAY_MCP_COMMON_MCPBASE_H
 #define GALAY_MCP_COMMON_MCPBASE_H
 
+#include "galay-mcp/common/McpJson.h"
+#include <expected>
+#include <functional>
+#include <optional>
 #include <string>
 #include <vector>
-#include <optional>
-#include <functional>
-#include <expected>
-#include <nlohmann/json.hpp>
+#include <cstdint>
 
 namespace galay {
 namespace mcp {
-
-// JSON类型别名
-using Json = nlohmann::json;
 
 // MCP协议版本
 constexpr const char* MCP_VERSION = "2024-11-05";
@@ -48,24 +46,24 @@ enum class ContentType {
 
 // 内容项
 struct Content {
-    ContentType type;
+    ContentType type{ContentType::Text};
     std::string text;           // 用于Text类型
     std::string data;           // 用于Image类型（base64编码）
     std::string mimeType;       // 用于Image类型
     std::string uri;            // 用于Resource类型
 
-    Json toJson() const;
-    static Content fromJson(const Json& j);
+    JsonString toJson() const;
+    static std::expected<Content, McpError> fromJson(const JsonElement& element);
 };
 
 // 工具定义
 struct Tool {
     std::string name;
     std::string description;
-    Json inputSchema;           // JSON Schema格式
+    JsonString inputSchema;           // JSON Schema格式
 
-    Json toJson() const;
-    static Tool fromJson(const Json& j);
+    JsonString toJson() const;
+    static std::expected<Tool, McpError> fromJson(const JsonElement& element);
 };
 
 // 资源定义
@@ -75,18 +73,28 @@ struct Resource {
     std::string description;
     std::string mimeType;
 
-    Json toJson() const;
-    static Resource fromJson(const Json& j);
+    JsonString toJson() const;
+    static std::expected<Resource, McpError> fromJson(const JsonElement& element);
+};
+
+// 提示参数定义
+struct PromptArgument {
+    std::string name;
+    std::string description;
+    bool required{false};
+
+    JsonString toJson() const;
+    static std::expected<PromptArgument, McpError> fromJson(const JsonElement& element);
 };
 
 // 提示定义
 struct Prompt {
     std::string name;
     std::string description;
-    std::vector<Json> arguments;
+    std::vector<PromptArgument> arguments;
 
-    Json toJson() const;
-    static Prompt fromJson(const Json& j);
+    JsonString toJson() const;
+    static std::expected<Prompt, McpError> fromJson(const JsonElement& element);
 };
 
 // 客户端信息
@@ -94,18 +102,18 @@ struct ClientInfo {
     std::string name;
     std::string version;
 
-    Json toJson() const;
-    static ClientInfo fromJson(const Json& j);
+    JsonString toJson() const;
+    static std::expected<ClientInfo, McpError> fromJson(const JsonElement& element);
 };
 
 // 服务器信息
 struct ServerInfo {
     std::string name;
     std::string version;
-    Json capabilities;
+    JsonString capabilities;
 
-    Json toJson() const;
-    static ServerInfo fromJson(const Json& j);
+    JsonString toJson() const;
+    static std::expected<ServerInfo, McpError> fromJson(const JsonElement& element);
 };
 
 // 服务器能力
@@ -115,18 +123,18 @@ struct ServerCapabilities {
     bool prompts = false;
     bool logging = false;
 
-    Json toJson() const;
-    static ServerCapabilities fromJson(const Json& j);
+    JsonString toJson() const;
+    static std::expected<ServerCapabilities, McpError> fromJson(const JsonElement& element);
 };
 
 // 初始化请求参数
 struct InitializeParams {
     std::string protocolVersion;
     ClientInfo clientInfo;
-    Json capabilities;
+    JsonString capabilities;
 
-    Json toJson() const;
-    static InitializeParams fromJson(const Json& j);
+    JsonString toJson() const;
+    static std::expected<InitializeParams, McpError> fromJson(const JsonElement& element);
 };
 
 // 初始化响应结果
@@ -135,17 +143,17 @@ struct InitializeResult {
     ServerInfo serverInfo;
     ServerCapabilities capabilities;
 
-    Json toJson() const;
-    static InitializeResult fromJson(const Json& j);
+    JsonString toJson() const;
+    static std::expected<InitializeResult, McpError> fromJson(const JsonElement& element);
 };
 
 // 工具调用参数
 struct ToolCallParams {
     std::string name;
-    Json arguments;
+    JsonString arguments;
 
-    Json toJson() const;
-    static ToolCallParams fromJson(const Json& j);
+    JsonString toJson() const;
+    static std::expected<ToolCallParams, McpError> fromJson(const JsonElement& element);
 };
 
 // 工具调用结果
@@ -153,50 +161,48 @@ struct ToolCallResult {
     std::vector<Content> content;
     bool isError = false;
 
-    Json toJson() const;
-    static ToolCallResult fromJson(const Json& j);
+    JsonString toJson() const;
+    static std::expected<ToolCallResult, McpError> fromJson(const JsonElement& element);
 };
 
-// JSON-RPC请求
+// JSON-RPC请求（用于生成请求）
 struct JsonRpcRequest {
     std::string jsonrpc = JSONRPC_VERSION;
     std::optional<int64_t> id;
     std::string method;
-    Json params;
+    std::optional<JsonString> params;
 
-    Json toJson() const;
-    static JsonRpcRequest fromJson(const Json& j);
+    JsonString toJson() const;
 };
 
 // JSON-RPC响应
 struct JsonRpcResponse {
     std::string jsonrpc = JSONRPC_VERSION;
-    int64_t id;
-    std::optional<Json> result;
-    std::optional<Json> error;
+    int64_t id = 0;
+    std::optional<JsonString> result;
+    std::optional<JsonString> error;
 
-    Json toJson() const;
-    static JsonRpcResponse fromJson(const Json& j);
+    JsonString toJson() const;
+    static std::expected<JsonRpcResponse, McpError> fromJson(const JsonElement& element);
 };
 
 // JSON-RPC通知
 struct JsonRpcNotification {
     std::string jsonrpc = JSONRPC_VERSION;
     std::string method;
-    Json params;
+    std::optional<JsonString> params;
 
-    Json toJson() const;
-    static JsonRpcNotification fromJson(const Json& j);
+    JsonString toJson() const;
 };
 
 // JSON-RPC错误
 struct JsonRpcError {
-    int code;
+    int code = 0;
     std::string message;
-    std::optional<Json> data;
+    std::optional<JsonString> data;
 
-    Json toJson() const;
-    static JsonRpcError fromJson(const Json& j);
+    JsonString toJson() const;
+    static std::expected<JsonRpcError, McpError> fromJson(const JsonElement& element);
 };
 
 // 错误码

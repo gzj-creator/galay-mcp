@@ -9,7 +9,7 @@
 - **操作系统**: macOS (Darwin 24.6.0)
 - **编译器**: AppleClang 17.0.0
 - **C++标准**: C++23
-- **依赖库**: nlohmann/json 3.11.3
+- **依赖库**: simdjson
 
 ## 测试日期
 

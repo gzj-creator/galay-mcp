@@ -1,13 +1,3 @@
-/**
- * @file E1-BasicStdioUsage.cc
- * @brief 基础Stdio MCP使用示例
- * @details 演示如何使用McpStdioClient和McpStdioServer进行基本的MCP通信
- */
-
-#include "galay-mcp/client/McpStdioClient.h"
-#include "galay-mcp/server/McpStdioServer.h"
-#include <iostream>
-
 using namespace galay::mcp;
 
 /**
@@ -22,30 +12,36 @@ void runSimpleServer() {
     server.setServerInfo("example-server", "1.0.0");
 
     // 添加一个简单的echo工具
+    auto echoSchema = SchemaBuilder()
+        .addString("message", "要回显的消息", true)
+        .build();
     server.addTool(
         "echo",
         "回显输入的消息",
-        Json::object({
-            {"type", "object"},
-            {"properties", Json::object({
-                {"message", Json::object({
-                    {"type", "string"},
-                    {"description", "要回显的消息"}
-                })}
-            })},
-            {"required", Json::array({"message"})}
-        }),
-        [](const Json& args) -> std::expected<Json, McpError> {
-            if (!args.contains("message")) {
+        echoSchema,
+        [](const JsonElement& args) -> std::expected<JsonString, McpError> {
+            JsonObject obj;
+            if (!JsonHelper::GetObject(args, obj)) {
+                return std::unexpected(McpError(
+                    McpErrorCode::InvalidParams,
+                    "Invalid arguments"
+                ));
+            }
+
+            std::string message;
+            if (!JsonHelper::GetString(obj, "message", message)) {
                 return std::unexpected(McpError(
                     McpErrorCode::InvalidParams,
                     "Missing 'message' parameter"
                 ));
             }
 
-            Json result;
-            result["echo"] = args["message"];
-            return result;
+            JsonWriter writer;
+            writer.StartObject();
+            writer.Key("echo");
+            writer.String(message);
+            writer.EndObject();
+            return writer.TakeString();
         }
     );
 
@@ -94,11 +90,14 @@ void runSimpleClient() {
 
     // 调用echo工具
     std::cout << "\nCalling echo tool..." << std::endl;
-    Json args;
-    args["message"] = "Hello, MCP!";
-    auto callResult = client.callTool("echo", args);
+    JsonWriter argsWriter;
+    argsWriter.StartObject();
+    argsWriter.Key("message");
+    argsWriter.String("Hello, MCP!");
+    argsWriter.EndObject();
+    auto callResult = client.callTool("echo", argsWriter.TakeString());
     if (callResult) {
-        std::cout << "Result: " << callResult.value().dump(2) << std::endl;
+        std::cout << "Result: " << callResult.value() << std::endl;
     }
 
     // 列出资源

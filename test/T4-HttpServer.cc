@@ -22,30 +22,68 @@ void signalHandler(int signum) {
 }
 
 // Echo工具（协程）
-Coroutine echoTool(const Json& arguments, std::expected<Json, McpError>& result) {
-    try {
-        std::string message = arguments.value("message", "");
-        Json res;
-        res["echo"] = message;
-        res["length"] = message.length();
-        result = res;
-    } catch (const std::exception& e) {
-        result = std::unexpected(McpError::invalidParams(e.what()));
+Coroutine echoTool(const JsonElement& arguments, std::expected<JsonString, McpError>& result) {
+    JsonObject obj;
+    if (!JsonHelper::GetObject(arguments, obj)) {
+        result = std::unexpected(McpError::invalidParams("Invalid arguments"));
+        co_return;
     }
+
+    std::string message;
+    JsonHelper::GetString(obj, "message", message);
+
+    JsonWriter writer;
+    writer.StartObject();
+    writer.Key("echo");
+    writer.String(message);
+    writer.Key("length");
+    writer.Number(static_cast<int64_t>(message.length()));
+    writer.EndObject();
+    result = writer.TakeString();
     co_return;
 }
 
 // 加法工具（协程）
-Coroutine addTool(const Json& arguments, std::expected<Json, McpError>& result) {
-    try {
-        double a = arguments.value("a", 0.0);
-        double b = arguments.value("b", 0.0);
-        Json res;
-        res["sum"] = a + b;
-        result = res;
-    } catch (const std::exception& e) {
-        result = std::unexpected(McpError::invalidParams(e.what()));
+Coroutine addTool(const JsonElement& arguments, std::expected<JsonString, McpError>& result) {
+    JsonObject obj;
+    if (!JsonHelper::GetObject(arguments, obj)) {
+        result = std::unexpected(McpError::invalidParams("Invalid arguments"));
+        co_return;
     }
+
+    auto aVal = obj["a"];
+    auto bVal = obj["b"];
+    if (aVal.error() || bVal.error()) {
+        result = std::unexpected(McpError::invalidParams("Missing parameters"));
+        co_return;
+    }
+
+    double a = 0.0;
+    double b = 0.0;
+    if (aVal.is_double()) {
+        a = aVal.get_double().value();
+    } else if (aVal.is_int64()) {
+        a = static_cast<double>(aVal.get_int64().value());
+    } else {
+        result = std::unexpected(McpError::invalidParams("Invalid parameter 'a'"));
+        co_return;
+    }
+
+    if (bVal.is_double()) {
+        b = bVal.get_double().value();
+    } else if (bVal.is_int64()) {
+        b = static_cast<double>(bVal.get_int64().value());
+    } else {
+        result = std::unexpected(McpError::invalidParams("Invalid parameter 'b'"));
+        co_return;
+    }
+
+    JsonWriter writer;
+    writer.StartObject();
+    writer.Key("sum");
+    writer.Number(a + b);
+    writer.EndObject();
+    result = writer.TakeString();
     co_return;
 }
 
@@ -62,23 +100,34 @@ Coroutine readExampleResource(const std::string& uri, std::expected<std::string,
 }
 
 // 提示获取器（协程）
-Coroutine getExamplePrompt(const std::string& name, const Json& arguments, std::expected<Json, McpError>& result) {
+Coroutine getExamplePrompt(const std::string& name, const JsonElement& arguments, std::expected<JsonString, McpError>& result) {
     if (name == "greeting") {
-        std::string userName = arguments.value("name", "User");
+        std::string userName = "User";
+        JsonObject obj;
+        if (JsonHelper::GetObject(arguments, obj)) {
+            JsonHelper::GetString(obj, "name", userName);
+        }
 
-        Json res;
-        res["description"] = "A friendly greeting";
-
-        Json messages = Json::array();
-        Json message;
-        message["role"] = "user";
-        message["content"] = Json::object();
-        message["content"]["type"] = "text";
-        message["content"]["text"] = "Hello, " + userName + "! How can I help you today?";
-        messages.push_back(message);
-
-        res["messages"] = messages;
-        result = res;
+        JsonWriter writer;
+        writer.StartObject();
+        writer.Key("description");
+        writer.String("A friendly greeting");
+        writer.Key("messages");
+        writer.StartArray();
+        writer.StartObject();
+        writer.Key("role");
+        writer.String("user");
+        writer.Key("content");
+        writer.StartObject();
+        writer.Key("type");
+        writer.String("text");
+        writer.Key("text");
+        writer.String("Hello, " + userName + "! How can I help you today?");
+        writer.EndObject();
+        writer.EndObject();
+        writer.EndArray();
+        writer.EndObject();
+        result = writer.TakeString();
     } else {
         result = std::unexpected(McpError::promptNotFound(name));
     }

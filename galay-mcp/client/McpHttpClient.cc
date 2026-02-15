@@ -1,7 +1,16 @@
-#include "McpHttpClient.h"
+#include "galay-mcp/client/McpHttpClient.h"
+#include "galay-mcp/common/McpJsonParser.h"
 
 namespace galay {
 namespace mcp {
+
+namespace {
+
+JsonString EmptyObjectString() {
+    return "{}";
+}
+
+} // namespace
 
 McpHttpClient::McpHttpClient(kernel::Runtime& runtime)
     : m_runtime(runtime) {
@@ -27,9 +36,9 @@ kernel::Coroutine McpHttpClient::initialize(std::string clientName,
     params.protocolVersion = MCP_VERSION;
     params.clientInfo.name = m_clientName;
     params.clientInfo.version = m_clientVersion;
-    params.capabilities = Json::object();
+    params.capabilities = EmptyObjectString();
 
-    std::expected<Json, McpError> response;
+    std::expected<JsonString, McpError> response;
     co_await sendRequest(Methods::INITIALIZE, params.toJson(), response).wait();
 
     if (!response) {
@@ -37,23 +46,30 @@ kernel::Coroutine McpHttpClient::initialize(std::string clientName,
         co_return;
     }
 
-    try {
-        InitializeResult initResult = InitializeResult::fromJson(response.value());
-        m_serverInfo = initResult.serverInfo;
-        m_serverCapabilities = initResult.capabilities;
-        m_initialized = true;
-        m_connected = true;
-        result = {};
-    } catch (const std::exception& e) {
-        result = std::unexpected(McpError::initializationFailed(e.what()));
+    auto docExp = JsonDocument::Parse(response.value());
+    if (!docExp) {
+        result = std::unexpected(McpError::initializationFailed(docExp.error().details()));
+        co_return;
     }
+
+    auto initExp = InitializeResult::fromJson(docExp.value().Root());
+    if (!initExp) {
+        result = std::unexpected(McpError::initializationFailed(initExp.error().message()));
+        co_return;
+    }
+
+    m_serverInfo = initExp.value().serverInfo;
+    m_serverCapabilities = initExp.value().capabilities;
+    m_initialized = true;
+    m_connected = true;
+    result = {};
 
     co_return;
 }
 
 kernel::Coroutine McpHttpClient::callTool(std::string toolName,
-                                           Json arguments,
-                                           std::expected<Json, McpError>& result) {
+                                           JsonString arguments,
+                                           std::expected<JsonString, McpError>& result) {
     if (!m_initialized) {
         result = std::unexpected(McpError::notInitialized());
         co_return;
@@ -61,9 +77,9 @@ kernel::Coroutine McpHttpClient::callTool(std::string toolName,
 
     ToolCallParams params;
     params.name = std::move(toolName);
-    params.arguments = std::move(arguments);
+    params.arguments = arguments.empty() ? EmptyObjectString() : std::move(arguments);
 
-    std::expected<Json, McpError> response;
+    std::expected<JsonString, McpError> response;
     co_await sendRequest(Methods::TOOLS_CALL, params.toJson(), response).wait();
 
     if (!response) {
@@ -71,23 +87,31 @@ kernel::Coroutine McpHttpClient::callTool(std::string toolName,
         co_return;
     }
 
-    try {
-        ToolCallResult callResult = ToolCallResult::fromJson(response.value());
-        if (callResult.isError) {
-            result = std::unexpected(McpError::toolExecutionFailed("Tool returned error"));
-            co_return;
-        }
-        if (callResult.content.empty()) {
-            result = Json::object();
-            co_return;
-        }
-        if (callResult.content[0].type == ContentType::Text) {
-            result = Json::parse(callResult.content[0].text);
-        } else {
-            result = Json::object();
-        }
-    } catch (const std::exception& e) {
-        result = std::unexpected(McpError::parseError(e.what()));
+    auto docExp = JsonDocument::Parse(response.value());
+    if (!docExp) {
+        result = std::unexpected(McpError::parseError(docExp.error().details()));
+        co_return;
+    }
+
+    auto callExp = ToolCallResult::fromJson(docExp.value().Root());
+    if (!callExp) {
+        result = std::unexpected(McpError::parseError(callExp.error().message()));
+        co_return;
+    }
+
+    const auto& callResult = callExp.value();
+    if (callResult.isError) {
+        result = std::unexpected(McpError::toolExecutionFailed("Tool returned error"));
+        co_return;
+    }
+    if (callResult.content.empty()) {
+        result = EmptyObjectString();
+        co_return;
+    }
+    if (callResult.content[0].type == ContentType::Text) {
+        result = callResult.content[0].text;
+    } else {
+        result = EmptyObjectString();
     }
 
     co_return;
@@ -99,26 +123,36 @@ kernel::Coroutine McpHttpClient::listTools(std::expected<std::vector<Tool>, McpE
         co_return;
     }
 
-    std::expected<Json, McpError> response;
-    co_await sendRequest(Methods::TOOLS_LIST, Json::object(), response).wait();
+    std::expected<JsonString, McpError> response;
+    co_await sendRequest(Methods::TOOLS_LIST, EmptyObjectString(), response).wait();
 
     if (!response) {
         result = std::unexpected(response.error());
         co_return;
     }
 
-    try {
-        std::vector<Tool> tools;
-        if (response.value().contains("tools")) {
-            for (const auto& item : response.value()["tools"]) {
-                tools.push_back(Tool::fromJson(item));
-            }
-        }
-        result = std::move(tools);
-    } catch (const std::exception& e) {
-        result = std::unexpected(McpError::parseError(e.what()));
+    auto docExp = JsonDocument::Parse(response.value());
+    if (!docExp) {
+        result = std::unexpected(McpError::parseError(docExp.error().details()));
+        co_return;
     }
 
+    std::vector<Tool> tools;
+    JsonObject obj;
+    if (JsonHelper::GetObject(docExp.value().Root(), obj)) {
+        JsonArray arr;
+        if (JsonHelper::GetArray(obj, "tools", arr)) {
+            for (auto item : arr) {
+                auto toolExp = Tool::fromJson(item);
+                if (!toolExp) {
+                    result = std::unexpected(McpError::parseError(toolExp.error().message()));
+                    co_return;
+                }
+                tools.push_back(std::move(toolExp.value()));
+            }
+        }
+    }
+    result = std::move(tools);
     co_return;
 }
 
@@ -128,26 +162,36 @@ kernel::Coroutine McpHttpClient::listResources(std::expected<std::vector<Resourc
         co_return;
     }
 
-    std::expected<Json, McpError> response;
-    co_await sendRequest(Methods::RESOURCES_LIST, Json::object(), response).wait();
+    std::expected<JsonString, McpError> response;
+    co_await sendRequest(Methods::RESOURCES_LIST, EmptyObjectString(), response).wait();
 
     if (!response) {
         result = std::unexpected(response.error());
         co_return;
     }
 
-    try {
-        std::vector<Resource> resources;
-        if (response.value().contains("resources")) {
-            for (const auto& item : response.value()["resources"]) {
-                resources.push_back(Resource::fromJson(item));
-            }
-        }
-        result = std::move(resources);
-    } catch (const std::exception& e) {
-        result = std::unexpected(McpError::parseError(e.what()));
+    auto docExp = JsonDocument::Parse(response.value());
+    if (!docExp) {
+        result = std::unexpected(McpError::parseError(docExp.error().details()));
+        co_return;
     }
 
+    std::vector<Resource> resources;
+    JsonObject obj;
+    if (JsonHelper::GetObject(docExp.value().Root(), obj)) {
+        JsonArray arr;
+        if (JsonHelper::GetArray(obj, "resources", arr)) {
+            for (auto item : arr) {
+                auto resExp = Resource::fromJson(item);
+                if (!resExp) {
+                    result = std::unexpected(McpError::parseError(resExp.error().message()));
+                    co_return;
+                }
+                resources.push_back(std::move(resExp.value()));
+            }
+        }
+    }
+    result = std::move(resources);
     co_return;
 }
 
@@ -158,33 +202,45 @@ kernel::Coroutine McpHttpClient::readResource(std::string uri,
         co_return;
     }
 
-    Json params;
-    params["uri"] = std::move(uri);
+    JsonWriter paramsWriter;
+    paramsWriter.StartObject();
+    paramsWriter.Key("uri");
+    paramsWriter.String(std::move(uri));
+    paramsWriter.EndObject();
 
-    std::expected<Json, McpError> response;
-    co_await sendRequest(Methods::RESOURCES_READ, params, response).wait();
+    std::expected<JsonString, McpError> response;
+    co_await sendRequest(Methods::RESOURCES_READ, paramsWriter.TakeString(), response).wait();
 
     if (!response) {
         result = std::unexpected(response.error());
         co_return;
     }
 
-    try {
-        if (response.value().contains("contents") && response.value()["contents"].is_array()) {
-            auto contents = response.value()["contents"];
-            if (!contents.empty()) {
-                Content content = Content::fromJson(contents[0]);
-                if (content.type == ContentType::Text) {
-                    result = content.text;
+    auto docExp = JsonDocument::Parse(response.value());
+    if (!docExp) {
+        result = std::unexpected(McpError::parseError(docExp.error().details()));
+        co_return;
+    }
+
+    JsonObject obj;
+    if (JsonHelper::GetObject(docExp.value().Root(), obj)) {
+        JsonArray arr;
+        if (JsonHelper::GetArray(obj, "contents", arr)) {
+            for (auto item : arr) {
+                auto contentExp = Content::fromJson(item);
+                if (!contentExp) {
+                    result = std::unexpected(McpError::parseError(contentExp.error().message()));
+                    co_return;
+                }
+                if (contentExp.value().type == ContentType::Text) {
+                    result = contentExp.value().text;
                     co_return;
                 }
             }
         }
-        result = "";
-    } catch (const std::exception& e) {
-        result = std::unexpected(McpError::parseError(e.what()));
     }
 
+    result = "";
     co_return;
 }
 
@@ -194,45 +250,59 @@ kernel::Coroutine McpHttpClient::listPrompts(std::expected<std::vector<Prompt>, 
         co_return;
     }
 
-    std::expected<Json, McpError> response;
-    co_await sendRequest(Methods::PROMPTS_LIST, Json::object(), response).wait();
+    std::expected<JsonString, McpError> response;
+    co_await sendRequest(Methods::PROMPTS_LIST, EmptyObjectString(), response).wait();
 
     if (!response) {
         result = std::unexpected(response.error());
         co_return;
     }
 
-    try {
-        std::vector<Prompt> prompts;
-        if (response.value().contains("prompts")) {
-            for (const auto& item : response.value()["prompts"]) {
-                prompts.push_back(Prompt::fromJson(item));
-            }
-        }
-        result = std::move(prompts);
-    } catch (const std::exception& e) {
-        result = std::unexpected(McpError::parseError(e.what()));
+    auto docExp = JsonDocument::Parse(response.value());
+    if (!docExp) {
+        result = std::unexpected(McpError::parseError(docExp.error().details()));
+        co_return;
     }
 
+    std::vector<Prompt> prompts;
+    JsonObject obj;
+    if (JsonHelper::GetObject(docExp.value().Root(), obj)) {
+        JsonArray arr;
+        if (JsonHelper::GetArray(obj, "prompts", arr)) {
+            for (auto item : arr) {
+                auto promptExp = Prompt::fromJson(item);
+                if (!promptExp) {
+                    result = std::unexpected(McpError::parseError(promptExp.error().message()));
+                    co_return;
+                }
+                prompts.push_back(std::move(promptExp.value()));
+            }
+        }
+    }
+    result = std::move(prompts);
     co_return;
 }
 
 kernel::Coroutine McpHttpClient::getPrompt(std::string name,
-                                            Json arguments,
-                                            std::expected<Json, McpError>& result) {
+                                            JsonString arguments,
+                                            std::expected<JsonString, McpError>& result) {
     if (!m_initialized) {
         result = std::unexpected(McpError::notInitialized());
         co_return;
     }
 
-    Json params;
-    params["name"] = std::move(name);
-    if (!arguments.is_null()) {
-        params["arguments"] = std::move(arguments);
+    JsonWriter paramsWriter;
+    paramsWriter.StartObject();
+    paramsWriter.Key("name");
+    paramsWriter.String(std::move(name));
+    if (!arguments.empty()) {
+        paramsWriter.Key("arguments");
+        paramsWriter.Raw(arguments);
     }
+    paramsWriter.EndObject();
 
-    std::expected<Json, McpError> response;
-    co_await sendRequest(Methods::PROMPTS_GET, params, response).wait();
+    std::expected<JsonString, McpError> response;
+    co_await sendRequest(Methods::PROMPTS_GET, paramsWriter.TakeString(), response).wait();
 
     if (!response) {
         result = std::unexpected(response.error());
@@ -249,8 +319,8 @@ kernel::Coroutine McpHttpClient::ping(std::expected<void, McpError>& result) {
         co_return;
     }
 
-    std::expected<Json, McpError> response;
-    co_await sendRequest(Methods::PING, Json::object(), response).wait();
+    std::expected<JsonString, McpError> response;
+    co_await sendRequest(Methods::PING, EmptyObjectString(), response).wait();
 
     if (!response) {
         result = std::unexpected(response.error());
@@ -268,15 +338,15 @@ async::CloseAwaitable McpHttpClient::disconnect() {
 }
 
 kernel::Coroutine McpHttpClient::sendRequest(std::string method,
-                                              Json params,
-                                              std::expected<Json, McpError>& result) {
+                                              std::optional<JsonString> params,
+                                              std::expected<JsonString, McpError>& result) {
     // 构建JSON-RPC请求
     JsonRpcRequest request;
     request.id = generateRequestId();
     request.method = std::move(method);
     request.params = std::move(params);
 
-    std::string requestBody = request.toJson().dump();
+    std::string requestBody = request.toJson();
 
     // 如果连接断开，重新连接
     if (!m_connected.load()) {
@@ -289,7 +359,8 @@ kernel::Coroutine McpHttpClient::sendRequest(std::string method,
     }
 
     // 发送POST请求
-    auto& awaitable = m_httpClient->post(
+    auto session = m_httpClient->getSession();
+    auto awaitable = session.post(
         m_httpClient->url().path,
         requestBody,
         "application/json",
@@ -328,26 +399,39 @@ kernel::Coroutine McpHttpClient::sendRequest(std::string method,
         }
 
         // 解析响应
-        try {
-            std::string responseBody = response.getBodyStr();
-            Json responseJson = Json::parse(responseBody);
-            JsonRpcResponse rpcResponse = JsonRpcResponse::fromJson(responseJson);
+        std::string responseBody = response.getBodyStr();
+        auto parsed = parseJsonRpcResponse(responseBody);
+        if (!parsed) {
+            result = std::unexpected(McpError::parseError(parsed.error().details()));
+            co_return;
+        }
 
-            if (rpcResponse.error.has_value()) {
-                JsonRpcError error = JsonRpcError::fromJson(rpcResponse.error.value());
-                result = std::unexpected(McpError::fromJsonRpcError(
-                    error.code, error.message,
-                    error.data.has_value() ? error.data.value().dump() : ""));
+        const auto& view = parsed.value().response;
+        if (view.hasError) {
+            auto errorExp = JsonRpcError::fromJson(view.error);
+            if (!errorExp) {
+                result = std::unexpected(McpError::parseError(errorExp.error().message()));
                 co_return;
             }
-
-            if (rpcResponse.result.has_value()) {
-                result = rpcResponse.result.value();
-            } else {
-                result = Json::object();
+            const auto& error = errorExp.value();
+            std::string details;
+            if (error.data.has_value()) {
+                details = error.data.value();
             }
-        } catch (const std::exception& e) {
-            result = std::unexpected(McpError::parseError(e.what()));
+            result = std::unexpected(McpError::fromJsonRpcError(
+                error.code, error.message, details));
+            co_return;
+        }
+
+        if (view.hasResult) {
+            std::string raw;
+            if (JsonHelper::GetRawJson(view.result, raw)) {
+                result = std::move(raw);
+            } else {
+                result = std::unexpected(McpError::parseError("Failed to parse result"));
+            }
+        } else {
+            result = EmptyObjectString();
         }
 
         co_return;

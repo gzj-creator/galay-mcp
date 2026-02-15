@@ -296,4 +296,5 @@ bash scripts/S5-TestHttpServer.sh
 
 - [T4-HTTP服务器测试.md](T4-HTTP服务器测试.md) - HTTP服务器测试文档
 - [T1-标准输入输出MCP测试.md](T1-标准输入输出MCP测试.md) - Stdio客户端测试文档
+- [4-性能测试.md](4-性能测试.md) - 性能测试总览文档
 - [B2-HTTP性能测试.md](B2-HTTP性能测试.md) - HTTP性能测试文档
