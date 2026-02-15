@@ -90,6 +90,7 @@ if(TARGET ${PROJECT_NAME}-modules)
         ARCHIVE DESTINATION lib
         RUNTIME DESTINATION bin
         INCLUDES DESTINATION include
+        FILE_SET CXX_MODULES DESTINATION include/galay-mcp/module
     )
 endif()
 

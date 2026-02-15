@@ -133,6 +133,29 @@ cmake -S . -B build-mod -G Ninja -DBUILD_MODULE_EXAMPLES=ON
 cmake --build build-mod -j
 ```
 
+### 模块支持更新（2026-02）
+
+本次模块接口已统一为：
+
+- `module;`
+- `#include "galay-mcp/module/ModulePrelude.hpp"`
+- `export module galay.mcp;`
+- `export { #include ... }`
+
+对应文件：
+
+- `galay-mcp/module/galay.mcp.cppm`
+- `galay-mcp/module/ModulePrelude.hpp`
+
+推荐构建命令（Clang 20）：
+
+```bash
+cmake -S . -B build-mod -G Ninja \
+  -DCMAKE_CXX_COMPILER=/opt/homebrew/opt/llvm@20/bin/clang++ \
+  -DBUILD_MODULE_EXAMPLES=ON
+cmake --build build-mod --target galay-mcp-modules -j
+```
+
 ## 🚀 快速开始
 
 ### 服务器端（标准输入输出）
