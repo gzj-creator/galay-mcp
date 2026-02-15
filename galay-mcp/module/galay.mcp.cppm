@@ -1,3 +1,7 @@
+module;
+
+#include "galay-mcp/module/ModulePrelude.hpp"
+
 export module galay.mcp;
 
 export {
