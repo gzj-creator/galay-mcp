@@ -4,16 +4,13 @@
 
 ## 文档导航
 
-建议先阅读 `docs/4-性能测试.md` 了解总体结果，再查看各专项报告：
+建议按以下顺序阅读：
 
-1. [标准输入输出MCP测试](docs/T1-标准输入输出MCP测试.md)
-2. [Stdio服务器测试](docs/T2-Stdio服务器测试.md)
-3. [HTTP客户端测试](docs/T3-HTTP客户端测试.md)
-4. [HTTP服务器测试](docs/T4-HTTP服务器测试.md)
-5. [性能测试总览](docs/4-性能测试.md)
-6. [B1-Stdio性能测试报告](docs/B1-Stdio性能测试.md)
-7. [B2-HTTP性能测试报告](docs/B2-HTTP性能测试.md)
-8. [B3-并发请求压测报告](docs/B3-并发请求压测.md)
+1. [标准输入输出MCP测试](docs/02-标准输入输出MCP测试.md)
+2. [Stdio服务器测试](docs/03-Stdio服务器测试.md)
+3. [HTTP客户端测试](docs/05-HTTP客户端测试.md)
+4. [HTTP服务器测试](docs/06-HTTP服务器测试.md)
+5. [性能测试总览](docs/04-性能测试.md)
 
 ## 📁 项目结构
 
@@ -62,24 +59,33 @@ galay-mcp/
 ## 📦 依赖
 
 - C++23 编译器（GCC 13+, Clang 16+）
-- [Galay-Kernel](https://github.com/GaiaKernel/galay) 框架
+- [galay-kernel](https://github.com/gzj-creator/galay-kernel)
+- [galay-utils](https://github.com/gzj-creator/galay-utils)
+- [galay-http](https://github.com/gzj-creator/galay-http)（HTTP 传输场景）
 - [simdjson](https://github.com/simdjson/simdjson) JSON 解析库
 
 ## 🔧 构建
 
 ### 前置要求
 
-确保已经安装了所有依赖：
+先安装基础依赖（`simdjson` 为必需，`galay-http` 为 HTTP 传输场景推荐）：
 
 ```bash
-# 1. 安装 Galay-Kernel 框架（参考 Galay 项目的安装说明）
-# 2. 安装 simdjson
-
-# macOS (使用 Homebrew)
-brew install simdjson
+# macOS (Homebrew)
+brew install cmake simdjson
 
 # Ubuntu/Debian
-sudo apt-get install libsimdjson-dev
+sudo apt-get update
+sudo apt-get install -y cmake g++ libsimdjson-dev
+```
+
+统一联调推荐拉取：
+
+```bash
+git clone https://github.com/gzj-creator/galay-kernel.git
+git clone https://github.com/gzj-creator/galay-utils.git
+git clone https://github.com/gzj-creator/galay-http.git
+git clone https://github.com/gzj-creator/galay-mcp.git
 ```
 
 ### 编译步骤
@@ -92,10 +98,10 @@ mkdir build && cd build
 cmake ..
 
 # 3. 编译
-make -j4
+cmake --build . --parallel
 
 # 4. （可选）安装到系统
-sudo make install
+sudo cmake --install .
 ```
 
 ### 构建选项
@@ -130,7 +136,7 @@ import galay.mcp;
 
 ```bash
 cmake -S . -B build-mod -G Ninja -DBUILD_MODULE_EXAMPLES=ON
-cmake --build build-mod -j
+cmake --build build-mod --parallel
 ```
 
 ### 模块支持更新（2026-02）
@@ -153,7 +159,7 @@ cmake --build build-mod -j
 cmake -S . -B build-mod -G Ninja \
   -DCMAKE_CXX_COMPILER=/opt/homebrew/opt/llvm@20/bin/clang++ \
   -DBUILD_MODULE_EXAMPLES=ON
-cmake --build build-mod --target galay-mcp-modules -j
+cmake --build build-mod --target galay-mcp-modules --parallel
 ```
 
 ## 🚀 快速开始
@@ -336,8 +342,10 @@ public:
 ## 🔍 示例代码
 
 完整示例请查看：
-- [test/test_stdio_server.cc](test/test_stdio_server.cc) - 服务器示例
-- [test/test_stdio_client.cc](test/test_stdio_client.cc) - 客户端示例
+- [test/T1-StdioClient.cc](test/T1-StdioClient.cc) - Stdio 客户端示例
+- [test/T2-StdioServer.cc](test/T2-StdioServer.cc) - Stdio 服务器示例
+- [test/T3-HttpClient.cc](test/T3-HttpClient.cc) - HTTP 客户端示例
+- [test/T4-HttpServer.cc](test/T4-HttpServer.cc) - HTTP 服务器示例
 
 ## 🛣️ 开发路线图
 
@@ -361,6 +369,6 @@ MIT License
 ## 🙏 致谢
 
 本项目基于以下优秀开源项目：
-- [Galay-Kernel](https://github.com/GaiaKernel/galay) - 高性能 C++ 框架
+- [galay-kernel](https://github.com/gzj-creator/galay-kernel) - 高性能 C++ 框架
 - [simdjson](https://github.com/simdjson/simdjson) - JSON 解析库
 - [MCP](https://modelcontextprotocol.io/) - Model Context Protocol 规范
