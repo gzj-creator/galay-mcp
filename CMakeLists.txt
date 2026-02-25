@@ -70,7 +70,7 @@ endif()
 
 # 可选：构建示例
 if(BUILD_EXAMPLES)
-    add_subdirectory(example)
+    add_subdirectory(examples)
 endif()
 
 # 生成 CMake 配置文件供其他项目使用
