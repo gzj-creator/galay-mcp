@@ -4,13 +4,24 @@
 
 ## 文档导航
 
+### 核心文档
+
 建议按以下顺序阅读：
 
-1. [标准输入输出MCP测试](docs/02-标准输入输出MCP测试.md)
-2. [Stdio服务器测试](docs/03-Stdio服务器测试.md)
-3. [HTTP客户端测试](docs/05-HTTP客户端测试.md)
-4. [HTTP服务器测试](docs/06-HTTP服务器测试.md)
-5. [性能测试总览](docs/04-性能测试.md)
+1. [快速开始](docs/00-快速开始.md) - 依赖安装、编译构建、运行测试和基本使用
+2. [架构设计](docs/01-架构设计.md) - 分层架构、核心组件和设计理念
+3. [API 参考](docs/02-API参考.md) - 完整的 API 文档和使用说明
+4. [使用指南](docs/03-使用指南.md) - 详细的使用说明和最佳实践
+5. [示例代码](docs/04-示例代码.md) - 完整的示例代码和常见场景
+6. [常见问题](docs/05-常见问题.md) - 常见问题解答和故障排除
+
+### 测试文档
+
+1. [标准输入输出MCP测试](docs/06-标准输入输出MCP测试.md)
+2. [Stdio服务器测试](docs/07-Stdio服务器测试.md)
+3. [HTTP客户端测试](docs/09-HTTP客户端测试.md)
+4. [HTTP服务器测试](docs/10-HTTP服务器测试.md)
+5. [性能测试总览](docs/08-性能测试.md)
 
 ## 📁 项目结构
 
@@ -31,7 +42,7 @@ galay-mcp/
 │   └── server/                 # 服务器实现
 │       ├── McpStdioServer.h    # 标准输入输出服务器
 │       └── McpStdioServer.cc   # 标准输入输出服务器实现
-├── example/                    # 示例
+├── examples/                    # 示例
 │   ├── common/                 # include/import 共用示例主体
 │   ├── include/                # #include 版本示例
 │   └── import/                 # import 版本示例
@@ -285,7 +296,9 @@ public:
     // 添加资源
     void addResource(const std::string& uri,
                      const std::string& name,
-                     const std::string& mimeType);
+                     const std::string& description,
+                     const std::string& mimeType,
+                     ResourceReader reader);
 
     // 添加提示
     void addPrompt(const std::string& name,
