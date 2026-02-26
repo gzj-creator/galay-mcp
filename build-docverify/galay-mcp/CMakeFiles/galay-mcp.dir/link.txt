@@ -1,0 +1,2 @@
+/usr/bin/ar qc ../lib/libgalay-mcp.a "CMakeFiles/galay-mcp.dir/client/McpHttpClient.cc.o" "CMakeFiles/galay-mcp.dir/client/McpStdioClient.cc.o" "CMakeFiles/galay-mcp.dir/common/McpBase.cc.o" "CMakeFiles/galay-mcp.dir/common/McpError.cc.o" "CMakeFiles/galay-mcp.dir/common/McpJson.cc.o" "CMakeFiles/galay-mcp.dir/common/McpJsonParser.cc.o" "CMakeFiles/galay-mcp.dir/server/McpHttpServer.cc.o" "CMakeFiles/galay-mcp.dir/server/McpStdioServer.cc.o"
+/usr/bin/ranlib ../lib/libgalay-mcp.a

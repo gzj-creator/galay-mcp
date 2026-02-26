@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG -arch arm64 -Wl,-search_paths_first -Wl,-headerpad_max_install_names "CMakeFiles/T3-HttpClient.dir/T3-HttpClient.cc.o" -o ../bin/T3-HttpClient  -Wl,-rpath,/usr/local/lib ../lib/libgalay-mcp.a /opt/homebrew/lib/libsimdjson.dylib /usr/local/lib/libgalay-http.dylib /usr/local/lib/libgalay-kernel.dylib
