@@ -146,7 +146,7 @@ void McpHttpServer::start() {
 
     http::HttpServerConfig config;
     config.host = m_host;
-    config.port = m_port;
+    config.port = static_cast<uint16_t>(m_port);
     config.backlog = 128;
 
     m_httpServer = std::make_unique<http::HttpServer>(config);
