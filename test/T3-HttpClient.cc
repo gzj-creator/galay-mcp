@@ -200,7 +200,7 @@ int main(int argc, char* argv[]) {
 
     try {
         // 创建Runtime
-        Runtime runtime(1, 1);
+        Runtime runtime = RuntimeBuilder().ioSchedulerCount(1).computeSchedulerCount(1).build();
         runtime.start();
         std::cout << "Runtime started\n\n";
 

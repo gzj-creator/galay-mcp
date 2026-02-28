@@ -301,7 +301,7 @@ int main(int argc, char* argv[]) {
     std::cout << "Compute Schedulers:" << computeSchedulers << std::endl;
     std::cout << "Make sure the HTTP MCP server is running!" << std::endl;
 
-    Runtime runtime(ioSchedulers, computeSchedulers);
+    Runtime runtime = RuntimeBuilder().ioSchedulerCount(ioSchedulers).computeSchedulerCount(computeSchedulers).build();
     runtime.start();
 
     std::vector<std::unique_ptr<McpHttpClient>> clients;

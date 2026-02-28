@@ -312,7 +312,7 @@ Coroutine runClientTest(McpHttpClient& client, const std::string& url, int& exit
  */
 void runHttpClient(const std::string& url) {
     // 创建Runtime
-    Runtime runtime(1, 1);
+    Runtime runtime = RuntimeBuilder().ioSchedulerCount(1).computeSchedulerCount(1).build();
     runtime.start();
 
     // 创建客户端

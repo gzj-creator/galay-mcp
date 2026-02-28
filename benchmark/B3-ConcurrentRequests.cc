@@ -155,7 +155,7 @@ void runConcurrentTest(const std::string& url, size_t numWorkers, size_t request
     std::atomic<int> completedWorkers(0);
 
     // 创建Runtime
-    Runtime runtime(4, 2);
+    Runtime runtime = RuntimeBuilder().ioSchedulerCount(4).computeSchedulerCount(2).build();
     runtime.start();
 
     // 创建客户端和协程
