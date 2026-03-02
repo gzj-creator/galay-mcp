@@ -9,11 +9,11 @@ project(galay-mcp
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# 可选构建项
-option(BUILD_TESTS "Build test programs" ON)
-option(BUILD_BENCHMARKS "Build benchmark programs" ON)
-option(BUILD_EXAMPLES "Build example programs" ON)
-option(BUILD_MODULE_EXAMPLES "Build C++23 module(import/export) examples" ON)
+# 构建选项 / 平台选项
+include(cmake/option.cmake)
+
+# 配置 IO 后端
+configure_io_backend()
 
 # C++23 命名模块支持能力检测
 set(GALAY_MCP_MODULES_SUPPORTED TRUE)
