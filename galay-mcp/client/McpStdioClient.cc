@@ -1,13 +1,74 @@
 #include "galay-mcp/client/McpStdioClient.h"
-#include <sstream>
 
 namespace galay {
 namespace mcp {
 
 namespace {
 
-JsonString EmptyObjectString() {
-    return "{}";
+const JsonString& EmptyObjectString() {
+    static const JsonString kEmptyObject = "{}";
+    return kEmptyObject;
+}
+
+template <typename T, typename ParseFn>
+std::expected<std::vector<T>, McpError> parseListField(std::string_view body,
+                                                       const char* fieldName,
+                                                       ParseFn&& parseFn) {
+    auto docExp = JsonDocument::Parse(body);
+    if (!docExp) {
+        return std::unexpected(McpError::parseError(docExp.error().details()));
+    }
+
+    JsonObject obj;
+    if (!JsonHelper::GetObject(docExp.value().Root(), obj)) {
+        return std::unexpected(McpError::parseError("Expected JSON object"));
+    }
+
+    std::vector<T> values;
+    JsonArray arr;
+    if (!JsonHelper::GetArray(obj, fieldName, arr)) {
+        return values;
+    }
+
+    for (auto item : arr) {
+        auto parsed = parseFn(item);
+        if (!parsed) {
+            return std::unexpected(McpError::parseError(parsed.error().message()));
+        }
+        values.emplace_back(std::move(parsed.value()));
+    }
+
+    return values;
+}
+
+std::expected<std::string, McpError> parseFirstTextContent(std::string_view body,
+                                                           const char* fieldName) {
+    auto docExp = JsonDocument::Parse(body);
+    if (!docExp) {
+        return std::unexpected(McpError::parseError(docExp.error().details()));
+    }
+
+    JsonObject obj;
+    if (!JsonHelper::GetObject(docExp.value().Root(), obj)) {
+        return std::unexpected(McpError::parseError("Expected JSON object"));
+    }
+
+    JsonArray arr;
+    if (!JsonHelper::GetArray(obj, fieldName, arr)) {
+        return std::string();
+    }
+
+    for (auto item : arr) {
+        auto contentExp = Content::fromJson(item);
+        if (!contentExp) {
+            return std::unexpected(McpError::parseError(contentExp.error().message()));
+        }
+        if (contentExp.value().type == ContentType::Text) {
+            return contentExp.value().text;
+        }
+    }
+
+    return std::string();
 }
 
 } // namespace
@@ -54,12 +115,16 @@ std::expected<void, McpError> McpStdioClient::initialize(const std::string& clie
         return std::unexpected(McpError::initializationFailed(initExp.error().message()));
     }
 
-    m_serverInfo = initExp.value().serverInfo;
-    m_serverCapabilities = initExp.value().capabilities;
+    auto initResult = std::move(initExp.value());
+    m_serverInfo = std::move(initResult.serverInfo);
+    m_serverCapabilities = std::move(initResult.capabilities);
     m_initialized = true;
 
     // 发送initialized通知
-    sendNotification(Methods::INITIALIZED, EmptyObjectString());
+    auto notifyResult = sendNotification(Methods::INITIALIZED, EmptyObjectString());
+    if (!notifyResult) {
+        return std::unexpected(notifyResult.error());
+    }
 
     return {};
 }
@@ -115,26 +180,10 @@ std::expected<std::vector<Tool>, McpError> McpStdioClient::listTools() {
         return std::unexpected(result.error());
     }
 
-    auto docExp = JsonDocument::Parse(result.value());
-    if (!docExp) {
-        return std::unexpected(McpError::parseError(docExp.error().details()));
-    }
-
-    std::vector<Tool> tools;
-    JsonObject obj;
-    if (JsonHelper::GetObject(docExp.value().Root(), obj)) {
-        JsonArray arr;
-        if (JsonHelper::GetArray(obj, "tools", arr)) {
-            for (auto item : arr) {
-                auto toolExp = Tool::fromJson(item);
-                if (!toolExp) {
-                    return std::unexpected(McpError::parseError(toolExp.error().message()));
-                }
-                tools.push_back(std::move(toolExp.value()));
-            }
-        }
-    }
-    return tools;
+    return parseListField<Tool>(
+        result.value(),
+        "tools",
+        [](const JsonElement& item) { return Tool::fromJson(item); });
 }
 
 std::expected<std::vector<Resource>, McpError> McpStdioClient::listResources() {
@@ -147,26 +196,10 @@ std::expected<std::vector<Resource>, McpError> McpStdioClient::listResources() {
         return std::unexpected(result.error());
     }
 
-    auto docExp = JsonDocument::Parse(result.value());
-    if (!docExp) {
-        return std::unexpected(McpError::parseError(docExp.error().details()));
-    }
-
-    std::vector<Resource> resources;
-    JsonObject obj;
-    if (JsonHelper::GetObject(docExp.value().Root(), obj)) {
-        JsonArray arr;
-        if (JsonHelper::GetArray(obj, "resources", arr)) {
-            for (auto item : arr) {
-                auto resExp = Resource::fromJson(item);
-                if (!resExp) {
-                    return std::unexpected(McpError::parseError(resExp.error().message()));
-                }
-                resources.push_back(std::move(resExp.value()));
-            }
-        }
-    }
-    return resources;
+    return parseListField<Resource>(
+        result.value(),
+        "resources",
+        [](const JsonElement& item) { return Resource::fromJson(item); });
 }
 
 std::expected<std::string, McpError> McpStdioClient::readResource(const std::string& uri) {
@@ -185,27 +218,7 @@ std::expected<std::string, McpError> McpStdioClient::readResource(const std::str
         return std::unexpected(result.error());
     }
 
-    auto docExp = JsonDocument::Parse(result.value());
-    if (!docExp) {
-        return std::unexpected(McpError::parseError(docExp.error().details()));
-    }
-
-    JsonObject obj;
-    if (JsonHelper::GetObject(docExp.value().Root(), obj)) {
-        JsonArray arr;
-        if (JsonHelper::GetArray(obj, "contents", arr)) {
-            for (auto item : arr) {
-                auto contentExp = Content::fromJson(item);
-                if (!contentExp) {
-                    return std::unexpected(McpError::parseError(contentExp.error().message()));
-                }
-                if (contentExp.value().type == ContentType::Text) {
-                    return contentExp.value().text;
-                }
-            }
-        }
-    }
-    return "";
+    return parseFirstTextContent(result.value(), "contents");
 }
 
 std::expected<std::vector<Prompt>, McpError> McpStdioClient::listPrompts() {
@@ -218,26 +231,10 @@ std::expected<std::vector<Prompt>, McpError> McpStdioClient::listPrompts() {
         return std::unexpected(result.error());
     }
 
-    auto docExp = JsonDocument::Parse(result.value());
-    if (!docExp) {
-        return std::unexpected(McpError::parseError(docExp.error().details()));
-    }
-
-    std::vector<Prompt> prompts;
-    JsonObject obj;
-    if (JsonHelper::GetObject(docExp.value().Root(), obj)) {
-        JsonArray arr;
-        if (JsonHelper::GetArray(obj, "prompts", arr)) {
-            for (auto item : arr) {
-                auto promptExp = Prompt::fromJson(item);
-                if (!promptExp) {
-                    return std::unexpected(McpError::parseError(promptExp.error().message()));
-                }
-                prompts.push_back(std::move(promptExp.value()));
-            }
-        }
-    }
-    return prompts;
+    return parseListField<Prompt>(
+        result.value(),
+        "prompts",
+        [](const JsonElement& item) { return Prompt::fromJson(item); });
 }
 
 std::expected<JsonString, McpError> McpStdioClient::getPrompt(const std::string& name,
@@ -293,11 +290,12 @@ const ServerCapabilities& McpStdioClient::getServerCapabilities() const {
     return m_serverCapabilities;
 }
 
-std::expected<JsonString, McpError> McpStdioClient::sendRequest(const std::string& method,
+std::expected<JsonString, McpError> McpStdioClient::sendRequest(std::string_view method,
                                                                 const std::optional<JsonString>& params) {
+    const int64_t requestId = generateRequestId();
     JsonRpcRequest request;
-    request.id = generateRequestId();
-    request.method = method;
+    request.id = requestId;
+    request.method = std::string(method);
     request.params = params;
 
     auto writeResult = writeMessage(request.toJson());
@@ -330,6 +328,11 @@ std::expected<JsonString, McpError> McpStdioClient::sendRequest(const std::strin
         if (!idVal.is_int64()) {
             return std::unexpected(McpError::invalidResponse("Invalid response id"));
         }
+        const int64_t responseId = idVal.get_int64().value();
+        if (responseId != requestId) {
+            // 忽略其他请求的响应，继续等待当前 request id。
+            continue;
+        }
 
         auto errorVal = obj["error"];
         if (!errorVal.error() && !errorVal.is_null()) {
@@ -358,10 +361,10 @@ std::expected<JsonString, McpError> McpStdioClient::sendRequest(const std::strin
     }
 }
 
-std::expected<void, McpError> McpStdioClient::sendNotification(const std::string& method,
+std::expected<void, McpError> McpStdioClient::sendNotification(std::string_view method,
                                                                const std::optional<JsonString>& params) {
     JsonRpcNotification notification;
-    notification.method = method;
+    notification.method = std::string(method);
     notification.params = params;
 
     return writeMessage(notification.toJson());
@@ -371,15 +374,13 @@ std::expected<std::string, McpError> McpStdioClient::readMessage() {
     std::lock_guard<std::mutex> lock(m_inputMutex);
 
     std::string line;
-    if (!std::getline(*m_input, line)) {
-        return std::unexpected(McpError::readError("Failed to read from stdin"));
+    while (std::getline(*m_input, line)) {
+        if (!line.empty()) {
+            return line;
+        }
     }
 
-    if (line.empty()) {
-        return std::unexpected(McpError::invalidMessage("Empty message"));
-    }
-
-    return line;
+    return std::unexpected(McpError::readError("Failed to read from stdin"));
 }
 
 std::expected<void, McpError> McpStdioClient::writeMessage(const JsonString& message) {
@@ -395,7 +396,7 @@ std::expected<void, McpError> McpStdioClient::writeMessage(const JsonString& mes
 }
 
 int64_t McpStdioClient::generateRequestId() {
-    return ++m_requestIdCounter;
+    return m_requestIdCounter.fetch_add(1, std::memory_order_relaxed) + 1;
 }
 
 } // namespace mcp

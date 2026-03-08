@@ -8,6 +8,7 @@
 #include <mutex>
 #include <iostream>
 #include <map>
+#include <string_view>
 
 namespace galay {
 namespace mcp {
@@ -109,11 +110,11 @@ public:
 
 private:
     // 发送请求并等待响应
-    std::expected<JsonString, McpError> sendRequest(const std::string& method,
+    std::expected<JsonString, McpError> sendRequest(std::string_view method,
                                                     const std::optional<JsonString>& params);
 
     // 发送通知（不等待响应）
-    std::expected<void, McpError> sendNotification(const std::string& method,
+    std::expected<void, McpError> sendNotification(std::string_view method,
                                                    const std::optional<JsonString>& params);
 
     // 读取一行JSON消息

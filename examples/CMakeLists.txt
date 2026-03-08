@@ -33,12 +33,12 @@ endfunction()
 
 if(BUILD_EXAMPLES)
     # include 版本
-    add_mcp_example(E1-BasicStdioUsage include/E1-BasicStdioUsage.cc)
-    add_mcp_example(E2-BasicHttpUsage include/E2-BasicHttpUsage.cc)
+    add_mcp_example(E1-BasicStdioUsage include/E1-basic_stdio_usage.cc)
+    add_mcp_example(E2-BasicHttpUsage include/E2-basic_http_usage.cc)
 
     # import 版本（按工具链支持自动开启）
     if(BUILD_MODULE_EXAMPLES AND TARGET galay-mcp-modules)
-        add_mcp_import_example(E1-BasicStdioUsageImport import/E1-BasicStdioUsage.cc)
-        add_mcp_import_example(E2-BasicHttpUsageImport import/E2-BasicHttpUsage.cc)
+        add_mcp_import_example(E1-BasicStdioUsageImport import/E1-basic_stdio_usage.cc)
+        add_mcp_import_example(E2-BasicHttpUsageImport import/E2-basic_http_usage.cc)
     endif()
 endif()

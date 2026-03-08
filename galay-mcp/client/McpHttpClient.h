@@ -8,6 +8,7 @@
 #include "galay-kernel/kernel/Coroutine.h"
 #include <atomic>
 #include <string>
+#include <string_view>
 #include <memory>
 
 namespace galay {
@@ -95,7 +96,7 @@ public:
 
 private:
     // 发送请求（协程）
-    kernel::Coroutine sendRequest(std::string method,
+    kernel::Coroutine sendRequest(std::string_view method,
                                    std::optional<JsonString> params,
                                    std::expected<JsonString, McpError>& result);
 

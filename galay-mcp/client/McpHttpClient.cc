@@ -6,8 +6,70 @@ namespace mcp {
 
 namespace {
 
-JsonString EmptyObjectString() {
-    return "{}";
+const JsonString& EmptyObjectString() {
+    static const JsonString kEmptyObject = "{}";
+    return kEmptyObject;
+}
+
+template <typename T, typename ParseFn>
+std::expected<std::vector<T>, McpError> parseListField(std::string_view body,
+                                                       const char* fieldName,
+                                                       ParseFn&& parseFn) {
+    auto docExp = JsonDocument::Parse(body);
+    if (!docExp) {
+        return std::unexpected(McpError::parseError(docExp.error().details()));
+    }
+
+    JsonObject obj;
+    if (!JsonHelper::GetObject(docExp.value().Root(), obj)) {
+        return std::unexpected(McpError::parseError("Expected JSON object"));
+    }
+
+    std::vector<T> values;
+    JsonArray arr;
+    if (!JsonHelper::GetArray(obj, fieldName, arr)) {
+        return values;
+    }
+
+    for (auto item : arr) {
+        auto parsed = parseFn(item);
+        if (!parsed) {
+            return std::unexpected(McpError::parseError(parsed.error().message()));
+        }
+        values.emplace_back(std::move(parsed.value()));
+    }
+
+    return values;
+}
+
+std::expected<std::string, McpError> parseFirstTextContent(std::string_view body,
+                                                           const char* fieldName) {
+    auto docExp = JsonDocument::Parse(body);
+    if (!docExp) {
+        return std::unexpected(McpError::parseError(docExp.error().details()));
+    }
+
+    JsonObject obj;
+    if (!JsonHelper::GetObject(docExp.value().Root(), obj)) {
+        return std::unexpected(McpError::parseError("Expected JSON object"));
+    }
+
+    JsonArray arr;
+    if (!JsonHelper::GetArray(obj, fieldName, arr)) {
+        return std::string();
+    }
+
+    for (auto item : arr) {
+        auto contentExp = Content::fromJson(item);
+        if (!contentExp) {
+            return std::unexpected(McpError::parseError(contentExp.error().message()));
+        }
+        if (contentExp.value().type == ContentType::Text) {
+            return contentExp.value().text;
+        }
+    }
+
+    return std::string();
 }
 
 } // namespace
@@ -58,8 +120,9 @@ kernel::Coroutine McpHttpClient::initialize(std::string clientName,
         co_return;
     }
 
-    m_serverInfo = initExp.value().serverInfo;
-    m_serverCapabilities = initExp.value().capabilities;
+    auto initResult = std::move(initExp.value());
+    m_serverInfo = std::move(initResult.serverInfo);
+    m_serverCapabilities = std::move(initResult.capabilities);
     m_initialized = true;
     m_connected = true;
     result = {};
@@ -131,28 +194,10 @@ kernel::Coroutine McpHttpClient::listTools(std::expected<std::vector<Tool>, McpE
         co_return;
     }
 
-    auto docExp = JsonDocument::Parse(response.value());
-    if (!docExp) {
-        result = std::unexpected(McpError::parseError(docExp.error().details()));
-        co_return;
-    }
-
-    std::vector<Tool> tools;
-    JsonObject obj;
-    if (JsonHelper::GetObject(docExp.value().Root(), obj)) {
-        JsonArray arr;
-        if (JsonHelper::GetArray(obj, "tools", arr)) {
-            for (auto item : arr) {
-                auto toolExp = Tool::fromJson(item);
-                if (!toolExp) {
-                    result = std::unexpected(McpError::parseError(toolExp.error().message()));
-                    co_return;
-                }
-                tools.push_back(std::move(toolExp.value()));
-            }
-        }
-    }
-    result = std::move(tools);
+    result = parseListField<Tool>(
+        response.value(),
+        "tools",
+        [](const JsonElement& item) { return Tool::fromJson(item); });
     co_return;
 }
 
@@ -170,28 +215,10 @@ kernel::Coroutine McpHttpClient::listResources(std::expected<std::vector<Resourc
         co_return;
     }
 
-    auto docExp = JsonDocument::Parse(response.value());
-    if (!docExp) {
-        result = std::unexpected(McpError::parseError(docExp.error().details()));
-        co_return;
-    }
-
-    std::vector<Resource> resources;
-    JsonObject obj;
-    if (JsonHelper::GetObject(docExp.value().Root(), obj)) {
-        JsonArray arr;
-        if (JsonHelper::GetArray(obj, "resources", arr)) {
-            for (auto item : arr) {
-                auto resExp = Resource::fromJson(item);
-                if (!resExp) {
-                    result = std::unexpected(McpError::parseError(resExp.error().message()));
-                    co_return;
-                }
-                resources.push_back(std::move(resExp.value()));
-            }
-        }
-    }
-    result = std::move(resources);
+    result = parseListField<Resource>(
+        response.value(),
+        "resources",
+        [](const JsonElement& item) { return Resource::fromJson(item); });
     co_return;
 }
 
@@ -216,31 +243,7 @@ kernel::Coroutine McpHttpClient::readResource(std::string uri,
         co_return;
     }
 
-    auto docExp = JsonDocument::Parse(response.value());
-    if (!docExp) {
-        result = std::unexpected(McpError::parseError(docExp.error().details()));
-        co_return;
-    }
-
-    JsonObject obj;
-    if (JsonHelper::GetObject(docExp.value().Root(), obj)) {
-        JsonArray arr;
-        if (JsonHelper::GetArray(obj, "contents", arr)) {
-            for (auto item : arr) {
-                auto contentExp = Content::fromJson(item);
-                if (!contentExp) {
-                    result = std::unexpected(McpError::parseError(contentExp.error().message()));
-                    co_return;
-                }
-                if (contentExp.value().type == ContentType::Text) {
-                    result = contentExp.value().text;
-                    co_return;
-                }
-            }
-        }
-    }
-
-    result = "";
+    result = parseFirstTextContent(response.value(), "contents");
     co_return;
 }
 
@@ -258,28 +261,10 @@ kernel::Coroutine McpHttpClient::listPrompts(std::expected<std::vector<Prompt>, 
         co_return;
     }
 
-    auto docExp = JsonDocument::Parse(response.value());
-    if (!docExp) {
-        result = std::unexpected(McpError::parseError(docExp.error().details()));
-        co_return;
-    }
-
-    std::vector<Prompt> prompts;
-    JsonObject obj;
-    if (JsonHelper::GetObject(docExp.value().Root(), obj)) {
-        JsonArray arr;
-        if (JsonHelper::GetArray(obj, "prompts", arr)) {
-            for (auto item : arr) {
-                auto promptExp = Prompt::fromJson(item);
-                if (!promptExp) {
-                    result = std::unexpected(McpError::parseError(promptExp.error().message()));
-                    co_return;
-                }
-                prompts.push_back(std::move(promptExp.value()));
-            }
-        }
-    }
-    result = std::move(prompts);
+    result = parseListField<Prompt>(
+        response.value(),
+        "prompts",
+        [](const JsonElement& item) { return Prompt::fromJson(item); });
     co_return;
 }
 
@@ -337,13 +322,14 @@ async::CloseAwaitable McpHttpClient::disconnect() {
     return m_httpClient->close();
 }
 
-kernel::Coroutine McpHttpClient::sendRequest(std::string method,
+kernel::Coroutine McpHttpClient::sendRequest(std::string_view method,
                                               std::optional<JsonString> params,
                                               std::expected<JsonString, McpError>& result) {
     // 构建JSON-RPC请求
+    const int64_t requestId = generateRequestId();
     JsonRpcRequest request;
-    request.id = generateRequestId();
-    request.method = std::move(method);
+    request.id = requestId;
+    request.method = std::string(method);
     request.params = std::move(params);
 
     std::string requestBody = request.toJson();
@@ -407,6 +393,10 @@ kernel::Coroutine McpHttpClient::sendRequest(std::string method,
         }
 
         const auto& view = parsed.value().response;
+        if (view.id != requestId) {
+            result = std::unexpected(McpError::invalidResponse("Mismatched response id"));
+            co_return;
+        }
         if (view.hasError) {
             auto errorExp = JsonRpcError::fromJson(view.error);
             if (!errorExp) {
@@ -439,7 +429,7 @@ kernel::Coroutine McpHttpClient::sendRequest(std::string method,
 }
 
 int64_t McpHttpClient::generateRequestId() {
-    return m_requestIdCounter.fetch_add(1, std::memory_order_relaxed);
+    return m_requestIdCounter.fetch_add(1, std::memory_order_relaxed) + 1;
 }
 
 } // namespace mcp
