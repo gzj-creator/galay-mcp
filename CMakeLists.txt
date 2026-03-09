@@ -95,17 +95,6 @@ install(FILES
 )
 
 install(EXPORT galay-mcp-targets
-    FILE galay-mcp-config.cmake
-    DESTINATION lib/cmake/galay-mcp
-)
-
-
-install(EXPORT galay-mcp-targets
-    FILE GalayMcpConfig.cmake
-    DESTINATION lib/cmake/galay-mcp
-)
-
-install(EXPORT galay-mcp-targets
-    FILE galaymcp-config.cmake
+    FILE galay-mcp-targets.cmake
     DESTINATION lib/cmake/galay-mcp
 )
