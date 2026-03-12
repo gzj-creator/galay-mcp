@@ -1,387 +1,244 @@
 # Galay MCP
 
-基于 Galay-Kernel 框架实现的 MCP (Model Context Protocol) 协议库。
+`galay-mcp` 是一个基于 C++23 的 MCP（Model Context Protocol）实现，仓库同时提供：
+
+- `stdio` 传输的客户端与服务器
+- `HTTP` 传输的客户端与服务器
+- `examples/` 中的 include / import 示例
+- `test/` 中的可执行测试程序
+- `benchmark/` 中的性能基准程序
+
+## 当前状态
+
+- 已实现：`McpStdioServer`、`McpStdioClient`、`McpHttpServer`、`McpHttpClient`
+- 已实现：JSON Schema 构建器、资源与提示注册、JSON-RPC 2.0 / MCP 基础方法
+- 条件支持：C++23 模块示例（`galay-mcp-modules`、`import galay.mcp;`）
+- 未实现：WebSocket 传输
 
 ## 文档导航
 
-### 核心文档
+- [文档总览](docs/README.md) - 文档阅读顺序与定位说明
+- [00-快速开始](docs/00-快速开始.md) - 依赖、构建、首次运行
+- [01-架构设计](docs/01-架构设计.md) - 分层设计与核心数据结构
+- [02-API参考](docs/02-API参考.md) - 公开头文件、API 签名、前置条件、失败语义与示例 / 测试锚点
+- [03-使用指南](docs/03-使用指南.md) - 使用模式与实践建议
+- [04-示例代码](docs/04-示例代码.md) - 与真实 `examples/` / `test/` 对齐的示例索引
+- [05-性能测试](docs/05-性能测试.md) - 基准目标、命令、验证方式与状态说明
+- [06-高级主题](docs/06-高级主题.md) - 模块构建、运行时与扩展边界
+- [07-常见问题](docs/07-常见问题.md) - 当前限制、排障与依赖说明
 
-建议按以下顺序阅读：
+文档导航收敛到 `README.md` + `docs/README.md` + `docs/00`~`docs/07`。此前独立拆分的测试页已并回：
 
-1. [快速开始](docs/00-快速开始.md) - 依赖安装、编译构建、运行测试和基本使用
-2. [架构设计](docs/01-架构设计.md) - 分层架构、核心组件和设计理念
-3. [API 参考](docs/02-API参考.md) - 完整的 API 文档和使用说明
-4. [使用指南](docs/03-使用指南.md) - 详细的使用说明和最佳实践
-5. [示例代码](docs/04-示例代码.md) - 完整的示例代码和常见场景
-6. [常见问题](docs/05-常见问题.md) - 常见问题解答和故障排除
+- [00-快速开始](docs/00-快速开始.md) - 首次联调与最短验证路径
+- [04-示例代码](docs/04-示例代码.md) - `examples/` / `test/` / `scripts/` 的统一示例与回归入口
+- [07-常见问题](docs/07-常见问题.md) - FIFO / transport / 排障说明
 
-### 测试文档
+## 文档真相来源
 
-1. [标准输入输出MCP测试](docs/06-标准输入输出MCP测试.md)
-2. [Stdio服务器测试](docs/07-Stdio服务器测试.md)
-3. [HTTP客户端测试](docs/09-HTTP客户端测试.md)
-4. [HTTP服务器测试](docs/10-HTTP服务器测试.md)
-5. [性能测试总览](docs/08-性能测试.md)
+当文档与仓库内容冲突时，以以下顺序为准：
 
-## 📁 项目结构
+1. `galay-mcp/` 下公开头文件与导出 target
+2. 对应 `.cc` 实现行为
+3. `examples/`
+4. `test/`
+5. `benchmark/`
+6. Markdown 文档
 
+## 仓库结构
+
+```text
+.
+├── CMakeLists.txt
+├── galay-mcp/
+│   ├── client/
+│   │   ├── McpStdioClient.h
+│   │   └── McpHttpClient.h
+│   ├── server/
+│   │   ├── McpStdioServer.h
+│   │   └── McpHttpServer.h
+│   ├── common/
+│   │   ├── McpBase.h
+│   │   ├── McpError.h
+│   │   ├── McpJson.h
+│   │   └── McpSchemaBuilder.h
+│   └── module/
+│       └── galay.mcp.cppm
+├── examples/
+│   ├── include/
+│   │   ├── E1-basic_stdio_usage.cc
+│   │   └── E2-basic_http_usage.cc
+│   ├── import/
+│   │   ├── E1-basic_stdio_usage.cc
+│   │   └── E2-basic_http_usage.cc
+│   └── common/
+├── test/
+│   ├── T1-stdio_client.cc
+│   ├── T2-stdio_server.cc
+│   ├── T3-http_client.cc
+│   └── T4-http_server.cc
+├── benchmark/
+│   ├── B1-stdio_performance.cc
+│   ├── B2-http_performance.cc
+│   └── B3-concurrent_requests.cc
+├── docs/
+└── scripts/
 ```
-galay-mcp/
-├── CMakeLists.txt              # 根项目配置
-├── README.md                   # 项目说明（本文件）
-├── galay-mcp/                  # 核心库
-│   ├── CMakeLists.txt          # 库构建配置
-│   ├── module/                 # C++23 命名模块接口（galay.mcp.cppm）
-│   ├── common/                 # 通用模块
-│   │   ├── McpBase.h           # 基础数据结构
-│   │   ├── McpError.h          # 错误处理
-│   │   └── McpError.cc         # 错误处理实现
-│   ├── client/                 # 客户端实现
-│   │   ├── McpStdioClient.h    # 标准输入输出客户端
-│   │   └── McpStdioClient.cc   # 标准输入输出客户端实现
-│   └── server/                 # 服务器实现
-│       ├── McpStdioServer.h    # 标准输入输出服务器
-│       └── McpStdioServer.cc   # 标准输入输出服务器实现
-├── examples/                    # 示例
-│   ├── common/                 # include/import 共用示例主体
-│   ├── include/                # #include 版本示例
-│   └── import/                 # import 版本示例
-├── test/                       # 测试
-│   ├── CMakeLists.txt
-│   ├── T1-StdioClient.cc
-│   └── ...
-├── benchmark/                  # 性能测试
-├── docs/                       # 文档
-├── scripts/                    # 脚本
-│   ├── run.sh                  # 运行脚本
-│   └── check.sh                # 检查脚本
-└── todo/                       # 待办事项
-```
 
-## ✨ 特性
+## 依赖与构建前提
 
-- ✅ **标准输入输出**：支持基于 stdin/stdout 的 MCP 通信
-- ✅ **简洁易用**：提供简洁的 API 接口
-- ✅ **类型安全**：使用 C++23 和 std::expected 进行错误处理
-- ✅ **标准兼容**：遵循 MCP 2024-11-05 规范
-- ✅ **高性能**：基于 Galay-Kernel 框架的高效实现
-- ✅ **HTTP 传输**：已支持（基于 Galay-HTTP）
+### 版本要求
 
-## 📦 依赖
+- CMake：`>= 3.20`
+- C++：`CMAKE_CXX_STANDARD 23`
+- 模块示例：`CMake >= 3.28`，且生成器需支持模块扫描（`Ninja` 或 `Visual Studio`）
+- 使用 Clang 构建模块示例时，还需要 `clang-scan-deps`
 
-- C++23 编译器（GCC 13+, Clang 16+）
-- [galay-kernel](https://github.com/gzj-creator/galay-kernel)
-- [galay-utils](https://github.com/gzj-creator/galay-utils)
-- [galay-http](https://github.com/gzj-creator/galay-http)（HTTP 传输场景）
-- [simdjson](https://github.com/simdjson/simdjson) JSON 解析库
+### 外部依赖矩阵
 
-## 🔧 构建
+| 场景 | 必需外部依赖 | 原因 |
+| --- | --- | --- |
+| 默认库构建 `galay-mcp` | `simdjson`、`galay-kernel`、`galay-http` | 当前 `galay-mcp/CMakeLists.txt` 会始终编译 `client/*.cc` 与 `server/*.cc`，HTTP 公开头文件无条件包含 `galay-http` / `galay-kernel` 头 |
+| `stdio` 示例 / 测试 | 同上 | 这些 target 统一链接到默认库 target，当前仓库没有单独的 `stdio-only` 库开关 |
+| HTTP 示例 / 测试 / benchmark | 同上 | 额外依赖 HTTP 运行时与网络栈 |
+| C++23 模块示例 | 同上 + 模块工具链支持 | 需要生成 `galay-mcp-modules` target |
 
-### 前置要求
+> 结论：当前仓库的“默认构建”不是 `simdjson-only`。如果缺少 `galay-kernel` 或 `galay-http`，请先补齐依赖，再执行 CMake 配置。
 
-先安装基础依赖（`simdjson` 为必需，`galay-http` 为 HTTP 传输场景推荐）：
+### 安装示例
 
 ```bash
 # macOS (Homebrew)
 brew install cmake simdjson
 
-# Ubuntu/Debian
+# Ubuntu / Debian
 sudo apt-get update
 sudo apt-get install -y cmake g++ libsimdjson-dev
 ```
 
-统一联调推荐拉取：
+`galay-kernel` 与 `galay-http` 当前需要按各自仓库的说明完成安装，并保证头文件 / 库可被 CMake 找到。
+
+## 构建
 
 ```bash
-git clone https://github.com/gzj-creator/galay-kernel.git
-git clone https://github.com/gzj-creator/galay-utils.git
-git clone https://github.com/gzj-creator/galay-http.git
-git clone https://github.com/gzj-creator/galay-mcp.git
+cmake -S . -B build -DBUILD_MODULE_EXAMPLES=OFF
+cmake --build build
 ```
 
-### 编译步骤
+常用选项：
 
 ```bash
-# 1. 创建构建目录
-mkdir build && cd build
+# 关闭测试 / CTest 注册
+cmake -S . -B build -DBUILD_TESTING=OFF
 
-# 2. 配置 CMake
-cmake ..
+# 关闭 benchmark
+cmake -S . -B build -DBUILD_BENCHMARKS=OFF
 
-# 3. 编译
-cmake --build . --parallel
+# 关闭 examples
+cmake -S . -B build -DBUILD_EXAMPLES=OFF
 
-# 4. （可选）安装到系统
-sudo cmake --install .
+# 尝试开启模块示例（仅在支持环境下）
+cmake -S . -B build -DBUILD_MODULE_EXAMPLES=ON -G Ninja
 ```
 
-### 构建选项
+`BUILD_TESTS` 仍保留为旧脚本兼容选项；新的 CI / CTest 入口请优先使用 `BUILD_TESTING`。
+
+## 快速验证
+
+### 1. Stdio 原始协议验证
+
+直接向 `T2-stdio_server` 输入 JSON-RPC 请求即可验证协议面：
 
 ```bash
-# 不构建测试
-cmake -DBUILD_TESTS=OFF ..
-
-# 不构建性能测试
-cmake -DBUILD_BENCHMARKS=OFF ..
-
-# 构建 C++23 module(import/export) 示例（支持环境会自动开启）
-cmake -DBUILD_MODULE_EXAMPLES=ON ..
-
-# 安装到系统
-cmake --build . --target install
+printf '%s\n' \
+  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"readme-check","version":"1.0.0"},"capabilities":{}}}' \
+  | ./build/bin/T2-stdio_server
 ```
 
-### C++23 模块（import/export）
+### 2. Stdio 双向客户端 / 服务器联调
 
-- 模块接口文件统一为 `.cppm`，当前接口：`galay-mcp/module/galay.mcp.cppm`
-- import 示例目标：`E1-BasicStdioUsageImport`、`E2-BasicHttpUsageImport`
-- 构建限制：
-  - 需要 CMake `>= 3.28`
-  - 生成器需为 `Ninja` 或 `Visual Studio`
-  - Clang 工具链需要 `clang-scan-deps`
-  - 不满足条件时，`BUILD_MODULE_EXAMPLES` 会自动降级为 `OFF`，不影响 include 版本构建
-
-```cpp
-import galay.mcp;
-```
+`stdio` 是双向流，单个 shell pipe 不足以完成完整会话。请使用两条 FIFO：
 
 ```bash
-cmake -S . -B build-mod -G Ninja -DBUILD_MODULE_EXAMPLES=ON
-cmake --build build-mod --parallel
+mkfifo /tmp/galay-mcp-c2s /tmp/galay-mcp-s2c
+./build/bin/T2-stdio_server < /tmp/galay-mcp-c2s > /tmp/galay-mcp-s2c &
+SERVER_PID=$!
+./build/bin/T1-stdio_client > /tmp/galay-mcp-c2s < /tmp/galay-mcp-s2c
+kill ${SERVER_PID}
+rm -f /tmp/galay-mcp-c2s /tmp/galay-mcp-s2c
 ```
 
-### 模块支持更新（2026-02）
+仓库内也提供了同等思路的脚本：`scripts/S4-RunIntegrationTest.sh`。
 
-本次模块接口已统一为：
+### 3. HTTP 联调
 
-- `module;`
-- `#include "galay-mcp/module/ModulePrelude.hpp"`
-- `export module galay.mcp;`
-- `export { #include ... }`
-
-对应文件：
-
-- `galay-mcp/module/galay.mcp.cppm`
-- `galay-mcp/module/ModulePrelude.hpp`
-
-推荐构建命令（Clang 20）：
+终端 1：
 
 ```bash
-cmake -S . -B build-mod -G Ninja \
-  -DCMAKE_CXX_COMPILER=/opt/homebrew/opt/llvm@20/bin/clang++ \
-  -DBUILD_MODULE_EXAMPLES=ON
-cmake --build build-mod --target galay-mcp-modules --parallel
+./build/bin/T4-http_server 8080 0.0.0.0
 ```
 
-## 🚀 快速开始
-
-### 服务器端（标准输入输出）
-
-```cpp
-#include "galay-mcp/server/McpStdioServer.h"
-#include "galay-mcp/common/McpSchemaBuilder.h"
-
-McpStdioServer server;
-
-// 添加工具
-auto schema = SchemaBuilder()
-    .addNumber("a", "First number", true)
-    .addNumber("b", "Second number", true)
-    .build();
-
-server.addTool("add", "Add two numbers", schema,
-    [](const JsonElement& args) -> std::expected<JsonString, McpError> {
-        JsonObject obj;
-        if (!JsonHelper::GetObject(args, obj)) {
-            return std::unexpected(McpError::invalidParams("Invalid arguments"));
-        }
-
-        auto aVal = obj["a"];
-        auto bVal = obj["b"];
-        if (aVal.error() || bVal.error()) {
-            return std::unexpected(McpError::invalidParams("Missing parameters"));
-        }
-
-        double a = aVal.is_double() ? aVal.get_double().value() : static_cast<double>(aVal.get_int64().value());
-        double b = bVal.is_double() ? bVal.get_double().value() : static_cast<double>(bVal.get_int64().value());
-
-        JsonWriter writer;
-        writer.StartObject();
-        writer.Key("result");
-        writer.Number(a + b);
-        writer.EndObject();
-        return writer.TakeString();
-    }
-);
-
-// 启动服务器（从 stdin 读取，向 stdout 写入）
-server.run();
-```
-
-### 客户端（标准输入输出）
-
-```cpp
-#include "galay-mcp/client/McpStdioClient.h"
-
-McpStdioClient client;
-
-// 初始化连接
-auto init_result = client.initialize("MyClient", "1.0.0");
-if (!init_result) {
-    // 处理错误
-}
-
-// 调用工具
-JsonWriter argsWriter;
-argsWriter.StartObject();
-argsWriter.Key("a");
-argsWriter.Number(static_cast<int64_t>(10));
-argsWriter.Key("b");
-argsWriter.Number(static_cast<int64_t>(20));
-argsWriter.EndObject();
-auto result = client.callTool("add", argsWriter.TakeString());
-if (result) {
-    std::cout << "Result: " << result.value() << std::endl;
-}
-```
-
-## 🧪 运行测试
+终端 2：
 
 ```bash
-cd build
-
-# 运行单元测试
-./bin/test_stdio_server
-./bin/test_stdio_client
-
-# 运行集成测试（通过管道连接）
-./bin/test_stdio_server | ./bin/test_stdio_client
+./build/bin/T3-http_client http://127.0.0.1:8080/mcp
 ```
 
-## 📖 协议格式
+## 公开 API 与模块名
 
-### 标准输入输出协议
+- 核心 target：`galay-mcp`
+- 模块 target：`galay-mcp-modules`（条件生成）
+- 模块名：`galay.mcp`
+- 主要公开头文件：
+  - `galay-mcp/common/McpBase.h`
+  - `galay-mcp/common/McpError.h`
+  - `galay-mcp/common/McpJson.h`
+  - `galay-mcp/common/McpJsonParser.h`
+  - `galay-mcp/common/McpProtocolUtils.h`
+  - `galay-mcp/common/McpSchemaBuilder.h`
+  - `galay-mcp/client/McpStdioClient.h`
+  - `galay-mcp/client/McpHttpClient.h`
+  - `galay-mcp/server/McpStdioServer.h`
+  - `galay-mcp/server/McpHttpServer.h`
+  - `galay-mcp/module/ModulePrelude.hpp`（模块构建兼容前导头）
+  - `galay-mcp/module/galay.mcp.cppm`（模块接口文件）
 
-- **传输**: stdin/stdout
-- **格式**: JSON-RPC 2.0
-- **分隔**: 每条消息一行（换行符分隔）
+详细签名与每个入口的前置条件 / 失败路径 / 示例锚点见 [02-API参考](docs/02-API参考.md)。
 
-### 请求示例
+## 示例、测试与基准索引
 
-```json
-{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"add","arguments":{"a":10,"b":20}}}
-```
+### 示例
 
-### 响应示例
+| 来源文件 | target | 运行命令 | 必需环境变量 |
+| --- | --- | --- | --- |
+| `examples/include/E1-basic_stdio_usage.cc` | `E1-BasicStdioUsage` | `./build/bin/E1-BasicStdioUsage server` / `client` | 无 |
+| `examples/import/E1-basic_stdio_usage.cc` | `E1-BasicStdioUsageImport` | 同上（仅模块构建成功时存在） | 无 |
+| `examples/include/E2-basic_http_usage.cc` | `E2-BasicHttpUsage` | `./build/bin/E2-BasicHttpUsage server` / `client http://127.0.0.1:8080/mcp` | 无 |
+| `examples/import/E2-basic_http_usage.cc` | `E2-BasicHttpUsageImport` | 同上（仅模块构建成功时存在） | 无 |
 
-```json
-{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"30"}]}}
-```
+### 测试
 
-## 📚 API 文档
+| 来源文件 | target | 说明 |
+| --- | --- | --- |
+| `test/T1-stdio_client.cc` | `T1-stdio_client` | stdio 客户端回归测试 |
+| `test/T2-stdio_server.cc` | `T2-stdio_server` | stdio 服务端回归测试 |
+| `test/T3-http_client.cc` | `T3-http_client` | HTTP 客户端回归测试 |
+| `test/T4-http_server.cc` | `T4-http_server` | HTTP 服务端回归测试 |
 
-> 说明：`JsonString` 为原始 JSON 字符串，`JsonElement` 为 simdjson 的只读 DOM 视图。
+### Benchmark
 
-### McpStdioServer
+| 来源文件 | target | 状态 |
+| --- | --- | --- |
+| `benchmark/B1-stdio_performance.cc` | `B1-stdio_performance` | 当前文档仅保留真实命令与参数，未附带本次整改新跑出的数字 |
+| `benchmark/B2-http_performance.cc` | `B2-http_performance` | 同上 |
+| `benchmark/B3-concurrent_requests.cc` | `B3-concurrent_requests` | 同上 |
 
-```cpp
-class McpStdioServer {
-public:
-    // 添加工具
-    void addTool(const std::string& name,
-                 const std::string& description,
-                 const JsonString& inputSchema,
-                 ToolHandler handler);
+## 已知限制
 
-    // 添加资源
-    void addResource(const std::string& uri,
-                     const std::string& name,
-                     const std::string& description,
-                     const std::string& mimeType,
-                     ResourceReader reader);
+- 当前默认构建没有 `stdio-only` 依赖裁剪开关。
+- WebSocket 传输未实现；任何相关内容都应视为扩展思路，而不是现成能力。
+- `stdio` 双向会话需要双向管道（FIFO / pty / 自定义 transport）；不要把单个 shell pipe 当作完整联调方案。
+- `docs/05-性能测试.md` 当前不包含与本次提交绑定的延迟 / QPS 断言，只保留可复现命令与验证方式。
 
-    // 添加提示
-    void addPrompt(const std::string& name,
-                   const std::string& description,
-                   const std::vector<PromptArgument>& arguments,
-                   PromptGetter getter);
+## 许可证
 
-    // 运行服务器（阻塞）
-    void run();
-
-    // 停止服务器
-    void stop();
-};
-```
-
-### McpStdioClient
-
-```cpp
-class McpStdioClient {
-public:
-    // 初始化连接
-    std::expected<void, McpError> initialize(
-        const std::string& clientName,
-        const std::string& clientVersion);
-
-    // 调用工具
-    std::expected<JsonString, McpError> callTool(
-        const std::string& toolName,
-        const JsonString& arguments);
-
-    // 获取工具列表
-    std::expected<std::vector<Tool>, McpError> listTools();
-
-    // 获取资源列表
-    std::expected<std::vector<Resource>, McpError> listResources();
-
-    // 断开连接
-    void disconnect();
-};
-```
-
-## 🏗️ 架构设计
-
-```
-应用层：McpStdioClient/Server（标准输入输出实现）
-    ↓
-协议层：MCP JSON-RPC 2.0 消息处理
-    ↓
-编解码：simdjson（解析）+ JsonWriter（序列化）
-    ↓
-传输层：stdin/stdout（标准输入输出流）
-```
-
-## 🔍 示例代码
-
-完整示例请查看：
-- [test/T1-StdioClient.cc](test/T1-StdioClient.cc) - Stdio 客户端示例
-- [test/T2-StdioServer.cc](test/T2-StdioServer.cc) - Stdio 服务器示例
-- [test/T3-HttpClient.cc](test/T3-HttpClient.cc) - HTTP 客户端示例
-- [test/T4-HttpServer.cc](test/T4-HttpServer.cc) - HTTP 服务器示例
-
-## 🛣️ 开发路线图
-
-- [x] 标准输入输出传输层实现
-- [x] 基础 MCP 协议支持
-- [x] 简化 API 设计
-- [ ] 完整的单元测试
-- [ ] 性能测试和优化
-- [x] HTTP 传输支持（基于 Galay-HTTP）
-- [ ] WebSocket 传输支持
-- [ ] 文档完善
-
-## 📄 许可证
-
-MIT License
-
-## 🤝 贡献
-
-欢迎提交 Issue 和 Pull Request！
-
-## 🙏 致谢
-
-本项目基于以下优秀开源项目：
-- [galay-kernel](https://github.com/gzj-creator/galay-kernel) - 高性能 C++ 框架
-- [simdjson](https://github.com/simdjson/simdjson) - JSON 解析库
-- [MCP](https://modelcontextprotocol.io/) - Model Context Protocol 规范
+项目许可证见 `LICENSE`。
