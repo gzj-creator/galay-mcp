@@ -11,13 +11,34 @@ JsonString EmptyObjectString() {
     return "{}";
 }
 
+JsonString MakeResultResponse(int64_t id, std::string_view resultJson) {
+    const std::string idString = std::to_string(id);
+    JsonString response;
+    response.reserve(32 + idString.size() + resultJson.size());
+    response += "{\"jsonrpc\":\"2.0\",\"id\":";
+    response += idString;
+    response += ",\"result\":";
+    if (resultJson.empty()) {
+        response += "{}";
+    } else {
+        response.append(resultJson.data(), resultJson.size());
+    }
+    response.push_back('}');
+    return response;
+}
+
 } // namespace
 
-McpHttpServer::McpHttpServer(const std::string& host, int port)
+McpHttpServer::McpHttpServer(const std::string& host,
+                             int port,
+                             size_t ioSchedulers,
+                             size_t computeSchedulers)
     : m_host(host)
     , m_port(port)
     , m_serverName("galay-mcp-http-server")
     , m_serverVersion("1.0.0")
+    , m_ioSchedulers(ioSchedulers)
+    , m_computeSchedulers(computeSchedulers)
     , m_toolsCacheDirty(true)
     , m_resourcesCacheDirty(true)
     , m_promptsCacheDirty(true)
@@ -96,7 +117,7 @@ void McpHttpServer::start() {
 
     auto* serverPtr = this;
     m_router->addHandler<http::HttpMethod::POST>("/mcp",
-        [serverPtr](http::HttpConn& conn, http::HttpRequest req) -> kernel::Coroutine {
+        [serverPtr](http::HttpConn& conn, http::HttpRequest req) -> Coroutine {
             // 每个连接独立的初始化状态（若已有全局初始化则允许短连接复用）
             bool connectionInitialized = false;
 
@@ -105,12 +126,12 @@ void McpHttpServer::start() {
                 const std::string& requestBody = req.bodyStr();
                 JsonString responseJson;
                 try {
-                    co_await serverPtr->processRequest(requestBody, responseJson, connectionInitialized).wait();
+                    co_await serverPtr->processRequest(requestBody, responseJson, connectionInitialized);
                 } catch (const std::exception& e) {
                     responseJson = serverPtr->createErrorResponse(0, ErrorCodes::PARSE_ERROR,
                                                       "Parse error", e.what());
                 }
-                co_await serverPtr->sendJsonResponse(conn, responseJson).wait();
+                co_await serverPtr->sendJsonResponse(conn, responseJson);
             }
 
             // Keep-Alive: 循环处理后续请求，直到连接关闭
@@ -135,12 +156,12 @@ void McpHttpServer::start() {
 
                 JsonString responseJson;
                 try {
-                    co_await serverPtr->processRequest(requestBody, responseJson, connectionInitialized).wait();
+                    co_await serverPtr->processRequest(requestBody, responseJson, connectionInitialized);
                 } catch (const std::exception& e) {
                     responseJson = serverPtr->createErrorResponse(0, ErrorCodes::PARSE_ERROR,
                                                       "Parse error", e.what());
                 }
-                co_await serverPtr->sendJsonResponse(conn, responseJson).wait();
+                co_await serverPtr->sendJsonResponse(conn, responseJson);
             }
         });
 
@@ -148,6 +169,8 @@ void McpHttpServer::start() {
     config.host = m_host;
     config.port = static_cast<uint16_t>(m_port);
     config.backlog = 128;
+    config.io_scheduler_count = m_ioSchedulers;
+    config.compute_scheduler_count = m_computeSchedulers;
 
     m_httpServer = std::make_unique<http::HttpServer>(config);
     m_running = true;
@@ -167,17 +190,22 @@ bool McpHttpServer::isRunning() const {
     return m_running;
 }
 
-kernel::Coroutine McpHttpServer::sendJsonResponse(http::HttpConn& conn, const JsonString& responseJson) {
-    auto response = http::Http1_1ResponseBuilder::ok()
-        .header("Server", m_serverName + "/" + m_serverVersion)
-        .header("Content-Type", "application/json")
-        .header("Connection", "keep-alive")
-        .json(responseJson)
-        .build();
+Coroutine McpHttpServer::sendJsonResponse(http::HttpConn& conn, const JsonString& responseJson) {
+    JsonString wireBytes;
+    const std::string serverHeader = m_serverName + "/" + m_serverVersion;
+    const std::string contentLength = std::to_string(responseJson.size());
+    wireBytes.reserve(serverHeader.size() + contentLength.size() + responseJson.size() + 96);
+    wireBytes += "HTTP/1.1 200 OK\r\n";
+    wireBytes += "Server: ";
+    wireBytes += serverHeader;
+    wireBytes += "\r\nContent-Type: application/json\r\nConnection: keep-alive\r\nContent-Length: ";
+    wireBytes += contentLength;
+    wireBytes += "\r\n\r\n";
+    wireBytes += responseJson;
 
     auto writer = conn.getWriter();
     while (true) {
-        auto send_result = co_await writer.sendResponse(response);
+        auto send_result = co_await writer.send(std::move(wireBytes));
         if (!send_result || send_result.value()) {
             break;
         }
@@ -185,7 +213,7 @@ kernel::Coroutine McpHttpServer::sendJsonResponse(http::HttpConn& conn, const Js
     co_return;
 }
 
-kernel::Coroutine McpHttpServer::processRequest(const std::string& requestBody, JsonString& responseJson, bool& connectionInitialized) {
+Coroutine McpHttpServer::processRequest(const std::string& requestBody, JsonString& responseJson, bool& connectionInitialized) {
     try {
         auto parsed = parseJsonRpcRequest(requestBody);
         if (!parsed) {
@@ -204,15 +232,15 @@ kernel::Coroutine McpHttpServer::processRequest(const std::string& requestBody, 
         } else if (method == Methods::TOOLS_LIST) {
             responseJson = handleToolsList(request, connectionInitialized);
         } else if (method == Methods::TOOLS_CALL) {
-            co_await handleToolsCall(request, responseJson, connectionInitialized).wait();
+            co_await handleToolsCall(request, responseJson, connectionInitialized);
         } else if (method == Methods::RESOURCES_LIST) {
             responseJson = handleResourcesList(request, connectionInitialized);
         } else if (method == Methods::RESOURCES_READ) {
-            co_await handleResourcesRead(request, responseJson, connectionInitialized).wait();
+            co_await handleResourcesRead(request, responseJson, connectionInitialized);
         } else if (method == Methods::PROMPTS_LIST) {
             responseJson = handlePromptsList(request, connectionInitialized);
         } else if (method == Methods::PROMPTS_GET) {
-            co_await handlePromptsGet(request, responseJson, connectionInitialized).wait();
+            co_await handlePromptsGet(request, responseJson, connectionInitialized);
         } else if (method == Methods::PING) {
             responseJson = handlePing(request);
         } else {
@@ -259,12 +287,10 @@ JsonString McpHttpServer::handleInitialize(const JsonRpcRequestView& request, bo
         !m_resources.empty(),
         !m_prompts.empty());
 
-    JsonRpcResponse response = protocol::makeResultResponse(request.id.value(), result);
-
     connectionInitialized = true;
     m_initialized.store(true, std::memory_order_relaxed);
 
-    return response.toJson();
+    return MakeResultResponse(request.id.value(), result);
 }
 
 JsonString McpHttpServer::handleToolsList(const JsonRpcRequestView& request, bool& connectionInitialized) {
@@ -277,13 +303,10 @@ JsonString McpHttpServer::handleToolsList(const JsonRpcRequestView& request, boo
                                   "Not initialized", "");
     }
 
-    JsonRpcResponse response = protocol::makeResultResponse(
-        request.id.value(), getToolsListResult());
-
-    return response.toJson();
+    return MakeResultResponse(request.id.value(), getToolsListResult());
 }
 
-kernel::Coroutine McpHttpServer::handleToolsCall(const JsonRpcRequestView& request, JsonString& responseJson, bool& connectionInitialized) {
+Coroutine McpHttpServer::handleToolsCall(const JsonRpcRequestView& request, JsonString& responseJson, bool& connectionInitialized) {
     if (!request.id.has_value()) {
         responseJson = EmptyObjectString();
         co_return;
@@ -333,7 +356,7 @@ kernel::Coroutine McpHttpServer::handleToolsCall(const JsonRpcRequestView& reque
 
         // 调用工具处理函数（协程）
         std::expected<JsonString, McpError> result;
-        co_await handler(arguments, result).wait();
+        co_await handler(arguments, result);
 
         if (!result) {
             responseJson = createErrorResponse(request.id.value(),
@@ -349,11 +372,7 @@ kernel::Coroutine McpHttpServer::handleToolsCall(const JsonRpcRequestView& reque
         content.text = result.value();
         callResult.content.push_back(content);
 
-        JsonRpcResponse response;
-        response.id = request.id.value();
-        response.result = callResult.toJson();
-
-        responseJson = response.toJson();
+        responseJson = MakeResultResponse(request.id.value(), callResult.toJson());
 
     } catch (const std::exception& e) {
         responseJson = createErrorResponse(request.id.value(), ErrorCodes::INTERNAL_ERROR,
@@ -372,13 +391,10 @@ JsonString McpHttpServer::handleResourcesList(const JsonRpcRequestView& request,
                                   "Not initialized", "");
     }
 
-    JsonRpcResponse response = protocol::makeResultResponse(
-        request.id.value(), getResourcesListResult());
-
-    return response.toJson();
+    return MakeResultResponse(request.id.value(), getResourcesListResult());
 }
 
-kernel::Coroutine McpHttpServer::handleResourcesRead(const JsonRpcRequestView& request, JsonString& responseJson, bool& connectionInitialized) {
+Coroutine McpHttpServer::handleResourcesRead(const JsonRpcRequestView& request, JsonString& responseJson, bool& connectionInitialized) {
     if (!request.id.has_value()) {
         responseJson = EmptyObjectString();
         co_return;
@@ -422,7 +438,7 @@ kernel::Coroutine McpHttpServer::handleResourcesRead(const JsonRpcRequestView& r
 
         // 调用资源读取函数（协程）
         std::expected<std::string, McpError> result;
-        co_await reader(uri, result).wait();
+        co_await reader(uri, result);
 
         if (!result) {
             responseJson = createErrorResponse(request.id.value(),
@@ -444,11 +460,7 @@ kernel::Coroutine McpHttpServer::handleResourcesRead(const JsonRpcRequestView& r
         resultWriter.EndArray();
         resultWriter.EndObject();
 
-        JsonRpcResponse response;
-        response.id = request.id.value();
-        response.result = resultWriter.TakeString();
-
-        responseJson = response.toJson();
+        responseJson = MakeResultResponse(request.id.value(), resultWriter.TakeString());
 
     } catch (const std::exception& e) {
         responseJson = createErrorResponse(request.id.value(), ErrorCodes::INTERNAL_ERROR,
@@ -467,13 +479,10 @@ JsonString McpHttpServer::handlePromptsList(const JsonRpcRequestView& request, b
                                   "Not initialized", "");
     }
 
-    JsonRpcResponse response = protocol::makeResultResponse(
-        request.id.value(), getPromptsListResult());
-
-    return response.toJson();
+    return MakeResultResponse(request.id.value(), getPromptsListResult());
 }
 
-kernel::Coroutine McpHttpServer::handlePromptsGet(const JsonRpcRequestView& request, JsonString& responseJson, bool& connectionInitialized) {
+Coroutine McpHttpServer::handlePromptsGet(const JsonRpcRequestView& request, JsonString& responseJson, bool& connectionInitialized) {
     if (!request.id.has_value()) {
         responseJson = EmptyObjectString();
         co_return;
@@ -523,7 +532,7 @@ kernel::Coroutine McpHttpServer::handlePromptsGet(const JsonRpcRequestView& requ
 
         // 调用提示获取函数（协程）
         std::expected<JsonString, McpError> result;
-        co_await getter(name, arguments, result).wait();
+        co_await getter(name, arguments, result);
 
         if (!result) {
             responseJson = createErrorResponse(request.id.value(),
@@ -533,11 +542,7 @@ kernel::Coroutine McpHttpServer::handlePromptsGet(const JsonRpcRequestView& requ
             co_return;
         }
 
-        JsonRpcResponse response;
-        response.id = request.id.value();
-        response.result = result.value();
-
-        responseJson = response.toJson();
+        responseJson = MakeResultResponse(request.id.value(), result.value());
 
     } catch (const std::exception& e) {
         responseJson = createErrorResponse(request.id.value(), ErrorCodes::INTERNAL_ERROR,
@@ -551,10 +556,7 @@ JsonString McpHttpServer::handlePing(const JsonRpcRequestView& request) {
         return EmptyObjectString();
     }
 
-    JsonRpcResponse response = protocol::makeResultResponse(
-        request.id.value(), EmptyObjectString());
-
-    return response.toJson();
+    return MakeResultResponse(request.id.value(), EmptyObjectString());
 }
 
 JsonString McpHttpServer::createErrorResponse(int64_t id, int code,

@@ -23,15 +23,18 @@ namespace mcp {
 class McpHttpServer {
 public:
     // 工具处理函数类型（协程）
-    using ToolHandler = std::function<kernel::Coroutine(const JsonElement&, std::expected<JsonString, McpError>&)>;
+    using ToolHandler = std::function<Coroutine(const JsonElement&, std::expected<JsonString, McpError>&)>;
 
     // 资源读取函数类型（协程）
-    using ResourceReader = std::function<kernel::Coroutine(const std::string&, std::expected<std::string, McpError>&)>;
+    using ResourceReader = std::function<Coroutine(const std::string&, std::expected<std::string, McpError>&)>;
 
     // 提示获取函数类型（协程）
-    using PromptGetter = std::function<kernel::Coroutine(const std::string&, const JsonElement&, std::expected<JsonString, McpError>&)>;
+    using PromptGetter = std::function<Coroutine(const std::string&, const JsonElement&, std::expected<JsonString, McpError>&)>;
 
-    McpHttpServer(const std::string& host = "0.0.0.0", int port = 8080);
+    McpHttpServer(const std::string& host = "0.0.0.0",
+                  int port = 8080,
+                  size_t ioSchedulers = 8,
+                  size_t computeSchedulers = 0);
     ~McpHttpServer();
 
     McpHttpServer(const McpHttpServer&) = delete;
@@ -63,19 +66,19 @@ public:
 
 private:
     // 发送JSON响应的协程（只有这一层是协程）
-    kernel::Coroutine sendJsonResponse(http::HttpConn& conn, const JsonString& responseJson);
+    Coroutine sendJsonResponse(http::HttpConn& conn, const JsonString& responseJson);
 
     // 处理JSON-RPC请求（协程）
-    kernel::Coroutine processRequest(const std::string& requestBody, JsonString& responseJson, bool& connectionInitialized);
+    Coroutine processRequest(const std::string& requestBody, JsonString& responseJson, bool& connectionInitialized);
 
     // 处理各种方法（全部同步，除了需要调用handler的）
     JsonString handleInitialize(const JsonRpcRequestView& request, bool& connectionInitialized);
     JsonString handleToolsList(const JsonRpcRequestView& request, bool& connectionInitialized);
-    kernel::Coroutine handleToolsCall(const JsonRpcRequestView& request, JsonString& responseJson, bool& connectionInitialized);
+    Coroutine handleToolsCall(const JsonRpcRequestView& request, JsonString& responseJson, bool& connectionInitialized);
     JsonString handleResourcesList(const JsonRpcRequestView& request, bool& connectionInitialized);
-    kernel::Coroutine handleResourcesRead(const JsonRpcRequestView& request, JsonString& responseJson, bool& connectionInitialized);
+    Coroutine handleResourcesRead(const JsonRpcRequestView& request, JsonString& responseJson, bool& connectionInitialized);
     JsonString handlePromptsList(const JsonRpcRequestView& request, bool& connectionInitialized);
-    kernel::Coroutine handlePromptsGet(const JsonRpcRequestView& request, JsonString& responseJson, bool& connectionInitialized);
+    Coroutine handlePromptsGet(const JsonRpcRequestView& request, JsonString& responseJson, bool& connectionInitialized);
     JsonString handlePing(const JsonRpcRequestView& request);
 
     JsonString createErrorResponse(int64_t id, int code, const std::string& message, const std::string& details = "");
@@ -89,6 +92,8 @@ private:
     int m_port;
     std::string m_serverName;
     std::string m_serverVersion;
+    size_t m_ioSchedulers;
+    size_t m_computeSchedulers;
 
     struct ToolInfo {
         Tool tool;

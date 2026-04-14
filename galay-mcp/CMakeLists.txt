@@ -6,14 +6,26 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # 查找依赖
-find_path(SIMDJSON_INCLUDE_DIR simdjson.h
-    PATHS /opt/homebrew/include /usr/local/include)
-find_library(SIMDJSON_LIBRARY NAMES simdjson
-    PATHS /opt/homebrew/lib /usr/local/lib)
+find_package(simdjson CONFIG QUIET)
+if(NOT TARGET simdjson::simdjson)
+    find_path(SIMDJSON_INCLUDE_DIR simdjson.h
+        PATHS /opt/homebrew/include /usr/local/include)
+    find_library(SIMDJSON_LIBRARY NAMES simdjson
+        PATHS /opt/homebrew/lib /usr/local/lib)
 
-if(NOT SIMDJSON_INCLUDE_DIR OR NOT SIMDJSON_LIBRARY)
-    message(FATAL_ERROR "simdjson not found, please install it")
+    if(NOT SIMDJSON_INCLUDE_DIR OR NOT SIMDJSON_LIBRARY)
+        message(FATAL_ERROR "simdjson not found, please install it")
+    endif()
+
+    add_library(simdjson::simdjson UNKNOWN IMPORTED)
+    set_target_properties(simdjson::simdjson PROPERTIES
+        IMPORTED_LOCATION "${SIMDJSON_LIBRARY}"
+        INTERFACE_INCLUDE_DIRECTORIES "${SIMDJSON_INCLUDE_DIR}"
+    )
 endif()
+
+find_package(galay-kernel CONFIG REQUIRED)
+find_package(GalayHttp CONFIG REQUIRED)
 
 # 收集源文件
 file(GLOB_RECURSE SRC_LIST
@@ -33,7 +45,6 @@ if(BUILD_MODULE_EXAMPLES)
     target_include_directories(${PROJECT_NAME}-modules PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>
         $<INSTALL_INTERFACE:include>
-        ${SIMDJSON_INCLUDE_DIR}
     )
     target_sources(${PROJECT_NAME}-modules
         PUBLIC
@@ -54,25 +65,18 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
     CXX_STANDARD_REQUIRED ON
 )
 
-# 查找 galay-http 和 galay-kernel（可选）
-find_library(GALAY_HTTP_LIB NAMES galay-http PATHS /usr/local/lib /usr/lib)
-find_library(GALAY_KERNEL_LIB NAMES galay-kernel PATHS /usr/local/lib /usr/lib)
-
 # 包含目录
 target_include_directories(${PROJECT_NAME} PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>
     $<INSTALL_INTERFACE:include>
-    ${SIMDJSON_INCLUDE_DIR}
 )
 
 # 链接依赖
-target_link_libraries(${PROJECT_NAME} PUBLIC ${SIMDJSON_LIBRARY})
-
-# 如果找到 galay-http 和 galay-kernel，添加其头文件和库
-if(GALAY_HTTP_LIB AND GALAY_KERNEL_LIB)
-    target_include_directories(${PROJECT_NAME} PUBLIC /usr/local/include)
-    target_link_libraries(${PROJECT_NAME} PUBLIC ${GALAY_HTTP_LIB} ${GALAY_KERNEL_LIB})
-endif()
+target_link_libraries(${PROJECT_NAME} PUBLIC
+    simdjson::simdjson
+    GalayHttp::galay-http
+    galay-kernel::galay-kernel
+)
 
 # 安装规则
 install(TARGETS ${PROJECT_NAME}

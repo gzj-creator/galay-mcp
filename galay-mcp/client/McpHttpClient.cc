@@ -82,14 +82,14 @@ McpHttpClient::McpHttpClient(kernel::Runtime& runtime)
 McpHttpClient::~McpHttpClient() {
 }
 
-async::ConnectAwaitable McpHttpClient::connect(const std::string& url) {
+McpHttpClient::ConnectAwaitable McpHttpClient::connect(const std::string& url) {
     m_serverUrl = url;
     return m_httpClient->connect(url);
 }
 
-kernel::Coroutine McpHttpClient::initialize(std::string clientName,
-                                             std::string clientVersion,
-                                             std::expected<void, McpError>& result) {
+Coroutine McpHttpClient::initialize(std::string clientName,
+                                    std::string clientVersion,
+                                    std::expected<void, McpError>& result) {
     m_clientName = std::move(clientName);
     m_clientVersion = std::move(clientVersion);
 
@@ -101,7 +101,7 @@ kernel::Coroutine McpHttpClient::initialize(std::string clientName,
     params.capabilities = EmptyObjectString();
 
     std::expected<JsonString, McpError> response;
-    co_await sendRequest(Methods::INITIALIZE, params.toJson(), response).wait();
+    co_await sendRequest(Methods::INITIALIZE, params.toJson(), response);
 
     if (!response) {
         result = std::unexpected(response.error());
@@ -130,9 +130,9 @@ kernel::Coroutine McpHttpClient::initialize(std::string clientName,
     co_return;
 }
 
-kernel::Coroutine McpHttpClient::callTool(std::string toolName,
-                                           JsonString arguments,
-                                           std::expected<JsonString, McpError>& result) {
+Coroutine McpHttpClient::callTool(std::string toolName,
+                                  JsonString arguments,
+                                  std::expected<JsonString, McpError>& result) {
     if (!m_initialized) {
         result = std::unexpected(McpError::notInitialized());
         co_return;
@@ -143,7 +143,7 @@ kernel::Coroutine McpHttpClient::callTool(std::string toolName,
     params.arguments = arguments.empty() ? EmptyObjectString() : std::move(arguments);
 
     std::expected<JsonString, McpError> response;
-    co_await sendRequest(Methods::TOOLS_CALL, params.toJson(), response).wait();
+    co_await sendRequest(Methods::TOOLS_CALL, params.toJson(), response);
 
     if (!response) {
         result = std::unexpected(response.error());
@@ -180,14 +180,14 @@ kernel::Coroutine McpHttpClient::callTool(std::string toolName,
     co_return;
 }
 
-kernel::Coroutine McpHttpClient::listTools(std::expected<std::vector<Tool>, McpError>& result) {
+Coroutine McpHttpClient::listTools(std::expected<std::vector<Tool>, McpError>& result) {
     if (!m_initialized) {
         result = std::unexpected(McpError::notInitialized());
         co_return;
     }
 
     std::expected<JsonString, McpError> response;
-    co_await sendRequest(Methods::TOOLS_LIST, EmptyObjectString(), response).wait();
+    co_await sendRequest(Methods::TOOLS_LIST, EmptyObjectString(), response);
 
     if (!response) {
         result = std::unexpected(response.error());
@@ -201,14 +201,14 @@ kernel::Coroutine McpHttpClient::listTools(std::expected<std::vector<Tool>, McpE
     co_return;
 }
 
-kernel::Coroutine McpHttpClient::listResources(std::expected<std::vector<Resource>, McpError>& result) {
+Coroutine McpHttpClient::listResources(std::expected<std::vector<Resource>, McpError>& result) {
     if (!m_initialized) {
         result = std::unexpected(McpError::notInitialized());
         co_return;
     }
 
     std::expected<JsonString, McpError> response;
-    co_await sendRequest(Methods::RESOURCES_LIST, EmptyObjectString(), response).wait();
+    co_await sendRequest(Methods::RESOURCES_LIST, EmptyObjectString(), response);
 
     if (!response) {
         result = std::unexpected(response.error());
@@ -222,8 +222,8 @@ kernel::Coroutine McpHttpClient::listResources(std::expected<std::vector<Resourc
     co_return;
 }
 
-kernel::Coroutine McpHttpClient::readResource(std::string uri,
-                                               std::expected<std::string, McpError>& result) {
+Coroutine McpHttpClient::readResource(std::string uri,
+                                      std::expected<std::string, McpError>& result) {
     if (!m_initialized) {
         result = std::unexpected(McpError::notInitialized());
         co_return;
@@ -236,7 +236,7 @@ kernel::Coroutine McpHttpClient::readResource(std::string uri,
     paramsWriter.EndObject();
 
     std::expected<JsonString, McpError> response;
-    co_await sendRequest(Methods::RESOURCES_READ, paramsWriter.TakeString(), response).wait();
+    co_await sendRequest(Methods::RESOURCES_READ, paramsWriter.TakeString(), response);
 
     if (!response) {
         result = std::unexpected(response.error());
@@ -247,14 +247,14 @@ kernel::Coroutine McpHttpClient::readResource(std::string uri,
     co_return;
 }
 
-kernel::Coroutine McpHttpClient::listPrompts(std::expected<std::vector<Prompt>, McpError>& result) {
+Coroutine McpHttpClient::listPrompts(std::expected<std::vector<Prompt>, McpError>& result) {
     if (!m_initialized) {
         result = std::unexpected(McpError::notInitialized());
         co_return;
     }
 
     std::expected<JsonString, McpError> response;
-    co_await sendRequest(Methods::PROMPTS_LIST, EmptyObjectString(), response).wait();
+    co_await sendRequest(Methods::PROMPTS_LIST, EmptyObjectString(), response);
 
     if (!response) {
         result = std::unexpected(response.error());
@@ -268,9 +268,9 @@ kernel::Coroutine McpHttpClient::listPrompts(std::expected<std::vector<Prompt>, 
     co_return;
 }
 
-kernel::Coroutine McpHttpClient::getPrompt(std::string name,
-                                            JsonString arguments,
-                                            std::expected<JsonString, McpError>& result) {
+Coroutine McpHttpClient::getPrompt(std::string name,
+                                   JsonString arguments,
+                                   std::expected<JsonString, McpError>& result) {
     if (!m_initialized) {
         result = std::unexpected(McpError::notInitialized());
         co_return;
@@ -287,7 +287,7 @@ kernel::Coroutine McpHttpClient::getPrompt(std::string name,
     paramsWriter.EndObject();
 
     std::expected<JsonString, McpError> response;
-    co_await sendRequest(Methods::PROMPTS_GET, paramsWriter.TakeString(), response).wait();
+    co_await sendRequest(Methods::PROMPTS_GET, paramsWriter.TakeString(), response);
 
     if (!response) {
         result = std::unexpected(response.error());
@@ -298,14 +298,14 @@ kernel::Coroutine McpHttpClient::getPrompt(std::string name,
     co_return;
 }
 
-kernel::Coroutine McpHttpClient::ping(std::expected<void, McpError>& result) {
+Coroutine McpHttpClient::ping(std::expected<void, McpError>& result) {
     if (!m_initialized) {
         result = std::unexpected(McpError::notInitialized());
         co_return;
     }
 
     std::expected<JsonString, McpError> response;
-    co_await sendRequest(Methods::PING, EmptyObjectString(), response).wait();
+    co_await sendRequest(Methods::PING, EmptyObjectString(), response);
 
     if (!response) {
         result = std::unexpected(response.error());
@@ -316,15 +316,15 @@ kernel::Coroutine McpHttpClient::ping(std::expected<void, McpError>& result) {
     co_return;
 }
 
-async::CloseAwaitable McpHttpClient::disconnect() {
+McpHttpClient::CloseAwaitable McpHttpClient::disconnect() {
     m_initialized = false;
     m_connected = false;
     return m_httpClient->close();
 }
 
-kernel::Coroutine McpHttpClient::sendRequest(std::string_view method,
-                                              std::optional<JsonString> params,
-                                              std::expected<JsonString, McpError>& result) {
+Coroutine McpHttpClient::sendRequest(std::string_view method,
+                                     std::optional<JsonString> params,
+                                     std::expected<JsonString, McpError>& result) {
     // 构建JSON-RPC请求
     const int64_t requestId = generateRequestId();
     JsonRpcRequest request;

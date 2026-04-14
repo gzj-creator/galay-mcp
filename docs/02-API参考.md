@@ -531,7 +531,10 @@ public:
     using ResourceReader = std::function<kernel::Coroutine(const std::string&, std::expected<std::string, McpError>&)>;
     using PromptGetter = std::function<kernel::Coroutine(const std::string&, const JsonElement&, std::expected<JsonString, McpError>&)>;
 
-    McpHttpServer(const std::string& host = "0.0.0.0", int port = 8080);
+    McpHttpServer(const std::string& host = "0.0.0.0",
+                  int port = 8080,
+                  size_t ioSchedulers = 8,
+                  size_t computeSchedulers = 0);
     ~McpHttpServer();
 
     void setServerInfo(const std::string& name, const std::string& version);
@@ -555,7 +558,7 @@ public:
 
 | 入口 | 参数 | 成功结果 | 失败 / 边界 |
 | --- | --- | --- | --- |
-| `McpHttpServer(host, port)` | 监听地址、端口；默认 `0.0.0.0:8080` | 构造实例 | 实际绑定失败由底层 `galay-http` 运行时暴露 |
+| `McpHttpServer(host, port, ioSchedulers, computeSchedulers)` | 监听地址、端口；默认 `0.0.0.0:8080`，HTTP runtime 默认 `io=8`、`compute=0` | 构造实例 | 实际绑定失败由底层 `galay-http` 运行时暴露 |
 | `setServerInfo(name, version)` | 服务器名、版本号 | `void` | 影响响应头 `Server` 与 `initialize` 返回体 |
 | `addTool(...)` / `addResource(...)` / `addPrompt(...)` | 与 `stdio` 版本同名参数 | `void` | 当前头文件明确标注为非线程安全注册阶段；运行期不要动态添加 |
 | `start()` | 无 | `void`，阻塞当前线程并监听 `POST /mcp` | 重复调用时直接返回；内部固定回复 `application/json` 且带 `Connection: keep-alive` |
@@ -592,7 +595,7 @@ public:
     explicit McpHttpClient(kernel::Runtime& runtime);
     ~McpHttpClient();
 
-    async::ConnectAwaitable connect(const std::string& url);
+    ConnectAwaitable connect(const std::string& url);
 
     kernel::Coroutine initialize(std::string clientName, std::string clientVersion, std::expected<void, McpError>& result);
     kernel::Coroutine callTool(std::string toolName, JsonString arguments, std::expected<JsonString, McpError>& result);
@@ -602,7 +605,7 @@ public:
     kernel::Coroutine listPrompts(std::expected<std::vector<Prompt>, McpError>& result);
     kernel::Coroutine getPrompt(std::string name, JsonString arguments, std::expected<JsonString, McpError>& result);
     kernel::Coroutine ping(std::expected<void, McpError>& result);
-    async::CloseAwaitable disconnect();
+    CloseAwaitable disconnect();
 
     bool isConnected() const;
     bool isInitialized() const;
@@ -622,14 +625,14 @@ public:
 | 入口 | 参数 | 成功结果 | 失败 / 边界 |
 | --- | --- | --- | --- |
 | `McpHttpClient(runtime)` | `kernel::Runtime&` | 构造实例 | 运行时生命周期需覆盖整个客户端对象 |
-| `connect(url)` | 服务端 URL，例如 `http://127.0.0.1:8080/mcp` | `async::ConnectAwaitable` | 该入口也是唯一的“公开设定 URL”方式；后续 RPC 会复用这里保存的 URL |
+| `connect(url)` | 服务端 URL，例如 `http://127.0.0.1:8080/mcp` | `ConnectAwaitable` | 该入口也是唯一的“公开设定 URL”方式；返回类型与底层 `http::HttpClient::connect()` 保持一致；后续 RPC 会复用这里保存的 URL |
 | `initialize(clientName, clientVersion, result)` | 客户端名、版本号、结果引用 | `result = {}` 并缓存 `serverInfo` / `serverCapabilities` | 解析初始化响应失败时写入 `InitializationFailed` |
 | `callTool(toolName, arguments, result)` | 工具名、原始 JSON 参数、结果引用 | `result` 写入第一条文本内容；无文本时写入 `{}` | 未初始化写入 `NotInitialized`；`isError=true` 时写入 `ToolExecutionFailed("Tool returned error")` |
 | `listTools(result)` / `listResources(result)` / `listPrompts(result)` | 结果引用 | 写入相应对象数组 | 未初始化写入 `NotInitialized`；缺失列表字段时写入空数组 |
 | `readResource(uri, result)` | URI、结果引用 | 写入第一条文本内容；无文本时为空字符串 | 未初始化写入 `NotInitialized` |
 | `getPrompt(name, arguments, result)` | 提示名、可选原始 JSON 参数、结果引用 | 写入服务端 `result` 原始 JSON | 未初始化写入 `NotInitialized` |
 | `ping(result)` | 结果引用 | 写入空成功结果 | 未初始化写入 `NotInitialized` |
-| `disconnect()` | 无 | `async::CloseAwaitable` | 先清理本地 `m_initialized` / `m_connected` 标志，再关闭底层连接 |
+| `disconnect()` | 无 | `CloseAwaitable` | 先清理本地 `m_initialized` / `m_connected` 标志，再返回与底层 `http::HttpClient::close()` 一致的关闭等待体 |
 | `isConnected()` / `isInitialized()` / `getServerInfo()` / `getServerCapabilities()` | 无 | 读取本地状态 / 缓存 | 不触发网络 I/O |
 
 ### 生命周期与并发语义

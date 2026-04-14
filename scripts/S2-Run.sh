@@ -5,7 +5,8 @@
 
 set -e
 
-SERVER="./bin/T2-StdioServer"
+BUILD_DIR="${BUILD_DIR:-build}"
+SERVER="${BUILD_DIR}/bin/T2-stdio_server"
 TEMP_OUTPUT="/tmp/mcp_test_output_$$"
 TEMP_INPUT="/tmp/mcp_test_input_$$"
 
@@ -19,12 +20,17 @@ trap cleanup EXIT
 echo "=== MCP Server Test Suite ==="
 echo ""
 
+if [ ! -x "$SERVER" ]; then
+    echo "✗ Server binary not found: $SERVER"
+    exit 1
+fi
+
 # 测试1: 初始化
 echo "Test 1: Initialize"
 cat > "$TEMP_INPUT" << 'EOF'
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"test","version":"1.0"},"capabilities":{}}}
 EOF
-cat "$TEMP_INPUT" | $SERVER 2>/dev/null | head -1 > "$TEMP_OUTPUT"
+cat "$TEMP_INPUT" | "$SERVER" 2>/dev/null | head -1 > "$TEMP_OUTPUT"
 
 if grep -q '"result"' "$TEMP_OUTPUT" && grep -q '"serverInfo"' "$TEMP_OUTPUT"; then
     echo "✓ Initialize test passed"
@@ -40,7 +46,7 @@ cat > "$TEMP_INPUT" << 'EOF'
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"test","version":"1.0"},"capabilities":{}}}
 {"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
 EOF
-cat "$TEMP_INPUT" | $SERVER 2>/dev/null | tail -1 > "$TEMP_OUTPUT"
+cat "$TEMP_INPUT" | "$SERVER" 2>/dev/null | tail -1 > "$TEMP_OUTPUT"
 
 if grep -q '"tools"' "$TEMP_OUTPUT" && grep -q '"add"' "$TEMP_OUTPUT"; then
     echo "✓ List tools test passed"
@@ -56,7 +62,7 @@ cat > "$TEMP_INPUT" << 'EOF'
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"test","version":"1.0"},"capabilities":{}}}
 {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"add","arguments":{"a":10,"b":20}}}
 EOF
-cat "$TEMP_INPUT" | $SERVER 2>/dev/null | tail -1 > "$TEMP_OUTPUT"
+cat "$TEMP_INPUT" | "$SERVER" 2>/dev/null | tail -1 > "$TEMP_OUTPUT"
 
 if grep -q '"result"' "$TEMP_OUTPUT" && grep -q '30' "$TEMP_OUTPUT"; then
     echo "✓ Call tool test passed"
@@ -72,7 +78,7 @@ cat > "$TEMP_INPUT" << 'EOF'
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"test","version":"1.0"},"capabilities":{}}}
 {"jsonrpc":"2.0","id":2,"method":"resources/list","params":{}}
 EOF
-cat "$TEMP_INPUT" | $SERVER 2>/dev/null | tail -1 > "$TEMP_OUTPUT"
+cat "$TEMP_INPUT" | "$SERVER" 2>/dev/null | tail -1 > "$TEMP_OUTPUT"
 
 if grep -q '"resources"' "$TEMP_OUTPUT" && grep -q 'test.txt' "$TEMP_OUTPUT"; then
     echo "✓ List resources test passed"
@@ -88,7 +94,7 @@ cat > "$TEMP_INPUT" << 'EOF'
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"test","version":"1.0"},"capabilities":{}}}
 {"jsonrpc":"2.0","id":2,"method":"resources/read","params":{"uri":"file:///test.txt"}}
 EOF
-cat "$TEMP_INPUT" | $SERVER 2>/dev/null | tail -1 > "$TEMP_OUTPUT"
+cat "$TEMP_INPUT" | "$SERVER" 2>/dev/null | tail -1 > "$TEMP_OUTPUT"
 
 if grep -q '"contents"' "$TEMP_OUTPUT" && grep -q 'test file content' "$TEMP_OUTPUT"; then
     echo "✓ Read resource test passed"
@@ -104,7 +110,7 @@ cat > "$TEMP_INPUT" << 'EOF'
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"test","version":"1.0"},"capabilities":{}}}
 {"jsonrpc":"2.0","id":2,"method":"prompts/list","params":{}}
 EOF
-cat "$TEMP_INPUT" | $SERVER 2>/dev/null | tail -1 > "$TEMP_OUTPUT"
+cat "$TEMP_INPUT" | "$SERVER" 2>/dev/null | tail -1 > "$TEMP_OUTPUT"
 
 if grep -q '"prompts"' "$TEMP_OUTPUT" && grep -q 'write_essay' "$TEMP_OUTPUT"; then
     echo "✓ List prompts test passed"
@@ -120,7 +126,7 @@ cat > "$TEMP_INPUT" << 'EOF'
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"test","version":"1.0"},"capabilities":{}}}
 {"jsonrpc":"2.0","id":2,"method":"ping","params":{}}
 EOF
-cat "$TEMP_INPUT" | $SERVER 2>/dev/null | tail -1 > "$TEMP_OUTPUT"
+cat "$TEMP_INPUT" | "$SERVER" 2>/dev/null | tail -1 > "$TEMP_OUTPUT"
 
 if grep -q '"id":2' "$TEMP_OUTPUT" && grep -q '"result"' "$TEMP_OUTPUT"; then
     echo "✓ Ping test passed"

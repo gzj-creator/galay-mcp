@@ -6,8 +6,11 @@
 
 #include "galay-mcp/client/McpHttpClient.h"
 #include "galay-kernel/kernel/Runtime.h"
+#include <atomic>
+#include <chrono>
 #include <iostream>
 #include <string>
+#include <thread>
 
 using namespace galay::mcp;
 using namespace galay::kernel;
@@ -24,13 +27,21 @@ void printError(const McpError& error) {
 }
 
 // 测试协程
-Coroutine runTest(McpHttpClient& client, const std::string& url, int& exitCode) {
+Coroutine runTest(McpHttpClient& client,
+                  const std::string& url,
+                  int& exitCode,
+                  std::atomic<bool>& done) {
+    auto finish = [&](int code) {
+        exitCode = code;
+        done.store(true, std::memory_order_release);
+    };
+
     // 连接到服务器
     std::cout << "Connecting to server...\n";
     auto connectResult = co_await client.connect(url);
     if (!connectResult) {
         std::cerr << "Connect error: " << connectResult.error().message() << "\n";
-        exitCode = 1;
+        finish(1);
         co_return;
     }
     std::cout << "Connected successfully\n\n";
@@ -38,10 +49,10 @@ Coroutine runTest(McpHttpClient& client, const std::string& url, int& exitCode) 
     // 初始化
     std::cout << "Initializing...\n";
     std::expected<void, McpError> initResult;
-    co_await client.initialize("test-http-client", "1.0.0", initResult).wait();
+    co_await client.initialize("test-http-client", "1.0.0", initResult);
     if (!initResult) {
         printError(initResult.error());
-        exitCode = 1;
+        finish(1);
         co_return;
     }
     std::cout << "Initialized successfully\n";
@@ -53,7 +64,7 @@ Coroutine runTest(McpHttpClient& client, const std::string& url, int& exitCode) 
     printSeparator();
     std::cout << "Testing ping...\n";
     std::expected<void, McpError> pingResult;
-    co_await client.ping(pingResult).wait();
+    co_await client.ping(pingResult);
     if (pingResult) {
         std::cout << "Ping successful\n";
     } else {
@@ -65,7 +76,7 @@ Coroutine runTest(McpHttpClient& client, const std::string& url, int& exitCode) 
     printSeparator();
     std::cout << "Listing tools...\n";
     std::expected<std::vector<Tool>, McpError> toolsResult;
-    co_await client.listTools(toolsResult).wait();
+    co_await client.listTools(toolsResult);
     if (toolsResult) {
         std::cout << "Available tools:\n";
         for (const auto& tool : toolsResult.value()) {
@@ -85,7 +96,7 @@ Coroutine runTest(McpHttpClient& client, const std::string& url, int& exitCode) 
     echoArgsWriter.String("Hello from HTTP client!");
     echoArgsWriter.EndObject();
     std::expected<JsonString, McpError> echoResult;
-    co_await client.callTool("echo", echoArgsWriter.TakeString(), echoResult).wait();
+    co_await client.callTool("echo", echoArgsWriter.TakeString(), echoResult);
     if (echoResult) {
         std::cout << "Echo result: " << echoResult.value() << "\n";
     } else {
@@ -104,7 +115,7 @@ Coroutine runTest(McpHttpClient& client, const std::string& url, int& exitCode) 
     addArgsWriter.Number(static_cast<int64_t>(58));
     addArgsWriter.EndObject();
     std::expected<JsonString, McpError> addResult;
-    co_await client.callTool("add", addArgsWriter.TakeString(), addResult).wait();
+    co_await client.callTool("add", addArgsWriter.TakeString(), addResult);
     if (addResult) {
         std::cout << "Add result: " << addResult.value() << "\n";
     } else {
@@ -116,7 +127,7 @@ Coroutine runTest(McpHttpClient& client, const std::string& url, int& exitCode) 
     printSeparator();
     std::cout << "Listing resources...\n";
     std::expected<std::vector<Resource>, McpError> resourcesResult;
-    co_await client.listResources(resourcesResult).wait();
+    co_await client.listResources(resourcesResult);
     if (resourcesResult) {
         std::cout << "Available resources:\n";
         for (const auto& resource : resourcesResult.value()) {
@@ -131,7 +142,7 @@ Coroutine runTest(McpHttpClient& client, const std::string& url, int& exitCode) 
     printSeparator();
     std::cout << "Reading resource...\n";
     std::expected<std::string, McpError> readResult;
-    co_await client.readResource("example://hello", readResult).wait();
+    co_await client.readResource("example://hello", readResult);
     if (readResult) {
         std::cout << "Resource content: " << readResult.value() << "\n";
     } else {
@@ -143,7 +154,7 @@ Coroutine runTest(McpHttpClient& client, const std::string& url, int& exitCode) 
     printSeparator();
     std::cout << "Listing prompts...\n";
     std::expected<std::vector<Prompt>, McpError> promptsResult;
-    co_await client.listPrompts(promptsResult).wait();
+    co_await client.listPrompts(promptsResult);
     if (promptsResult) {
         std::cout << "Available prompts:\n";
         for (const auto& prompt : promptsResult.value()) {
@@ -163,7 +174,7 @@ Coroutine runTest(McpHttpClient& client, const std::string& url, int& exitCode) 
     promptArgsWriter.String("Alice");
     promptArgsWriter.EndObject();
     std::expected<JsonString, McpError> promptResult;
-    co_await client.getPrompt("greeting", promptArgsWriter.TakeString(), promptResult).wait();
+    co_await client.getPrompt("greeting", promptArgsWriter.TakeString(), promptResult);
     if (promptResult) {
         std::cout << "Prompt result: " << promptResult.value() << "\n";
     } else {
@@ -177,7 +188,7 @@ Coroutine runTest(McpHttpClient& client, const std::string& url, int& exitCode) 
     co_await client.disconnect();
     std::cout << "Disconnected\n\n";
 
-    exitCode = 0;
+    finish(0);
     co_return;
 }
 
@@ -196,7 +207,8 @@ int main(int argc, char* argv[]) {
     printSeparator();
     std::cout << "\n";
 
-    int exitCode = 0;
+        int exitCode = 0;
+        std::atomic<bool> done{false};
 
     try {
         // 创建Runtime
@@ -209,14 +221,26 @@ int main(int argc, char* argv[]) {
 
         // 在IO调度器上运行测试协程
         auto* scheduler = runtime.getNextIOScheduler();
-        scheduler->spawn(runTest(client, url, exitCode));
+        if (!scheduler || !scheduleTask(scheduler, runTest(client, url, exitCode, done))) {
+            std::cerr << "Failed to schedule HTTP MCP client test task\n";
+            runtime.stop();
+            return 1;
+        }
 
-        // 等待测试完成
-        std::this_thread::sleep_for(std::chrono::seconds(5));
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        while (!done.load(std::memory_order_acquire) &&
+               std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
 
         // 停止Runtime
         runtime.stop();
         std::cout << "Runtime stopped\n";
+
+        if (!done.load(std::memory_order_acquire)) {
+            std::cerr << "Client test timed out\n";
+            return 1;
+        }
 
         printSeparator();
         if (exitCode == 0) {

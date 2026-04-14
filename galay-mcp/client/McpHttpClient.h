@@ -5,11 +5,11 @@
 #include "galay-mcp/common/McpError.h"
 #include "galay-http/kernel/http/HttpClient.h"
 #include "galay-kernel/kernel/Runtime.h"
-#include "galay-kernel/kernel/Coroutine.h"
 #include <atomic>
 #include <string>
 #include <string_view>
 #include <memory>
+#include <utility>
 
 namespace galay {
 namespace mcp {
@@ -22,6 +22,10 @@ namespace mcp {
  */
 class McpHttpClient {
 public:
+    using ConnectAwaitable =
+        decltype(std::declval<http::HttpClient&>().connect(std::declval<const std::string&>()));
+    using CloseAwaitable = decltype(std::declval<http::HttpClient&>().close());
+
     explicit McpHttpClient(kernel::Runtime& runtime);
     ~McpHttpClient();
 
@@ -34,59 +38,59 @@ public:
     /**
      * @brief 连接到服务器（返回等待体）
      */
-    async::ConnectAwaitable connect(const std::string& url);
+    ConnectAwaitable connect(const std::string& url);
 
     /**
      * @brief 初始化连接（协程，内部需要co_await发送请求）
      */
-    kernel::Coroutine initialize(std::string clientName,
-                                  std::string clientVersion,
-                                  std::expected<void, McpError>& result);
+    Coroutine initialize(std::string clientName,
+                         std::string clientVersion,
+                         std::expected<void, McpError>& result);
 
     /**
      * @brief 调用工具（协程）
      */
-    kernel::Coroutine callTool(std::string toolName,
-                                JsonString arguments,
-                                std::expected<JsonString, McpError>& result);
+    Coroutine callTool(std::string toolName,
+                       JsonString arguments,
+                       std::expected<JsonString, McpError>& result);
 
     /**
      * @brief 获取工具列表（协程）
      */
-    kernel::Coroutine listTools(std::expected<std::vector<Tool>, McpError>& result);
+    Coroutine listTools(std::expected<std::vector<Tool>, McpError>& result);
 
     /**
      * @brief 获取资源列表（协程）
      */
-    kernel::Coroutine listResources(std::expected<std::vector<Resource>, McpError>& result);
+    Coroutine listResources(std::expected<std::vector<Resource>, McpError>& result);
 
     /**
      * @brief 读取资源（协程）
      */
-    kernel::Coroutine readResource(std::string uri,
-                                    std::expected<std::string, McpError>& result);
+    Coroutine readResource(std::string uri,
+                           std::expected<std::string, McpError>& result);
 
     /**
      * @brief 获取提示列表（协程）
      */
-    kernel::Coroutine listPrompts(std::expected<std::vector<Prompt>, McpError>& result);
+    Coroutine listPrompts(std::expected<std::vector<Prompt>, McpError>& result);
 
     /**
      * @brief 获取提示（协程）
      */
-    kernel::Coroutine getPrompt(std::string name,
-                                 JsonString arguments,
-                                 std::expected<JsonString, McpError>& result);
+    Coroutine getPrompt(std::string name,
+                        JsonString arguments,
+                        std::expected<JsonString, McpError>& result);
 
     /**
      * @brief 发送ping请求（协程）
      */
-    kernel::Coroutine ping(std::expected<void, McpError>& result);
+    Coroutine ping(std::expected<void, McpError>& result);
 
     /**
      * @brief 断开连接（返回等待体）
      */
-    async::CloseAwaitable disconnect();
+    CloseAwaitable disconnect();
 
     // 简单的同步接口
     bool isConnected() const { return m_connected.load(); }
@@ -96,9 +100,9 @@ public:
 
 private:
     // 发送请求（协程）
-    kernel::Coroutine sendRequest(std::string_view method,
-                                   std::optional<JsonString> params,
-                                   std::expected<JsonString, McpError>& result);
+    Coroutine sendRequest(std::string_view method,
+                          std::optional<JsonString> params,
+                          std::expected<JsonString, McpError>& result);
 
     int64_t generateRequestId();
 

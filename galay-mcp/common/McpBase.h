@@ -2,6 +2,7 @@
 #define GALAY_MCP_COMMON_MCPBASE_H
 
 #include "galay-mcp/common/McpJson.h"
+#include "galay-kernel/kernel/Task.h"
 #include <expected>
 #include <functional>
 #include <optional>
@@ -11,6 +12,8 @@
 
 namespace galay {
 namespace mcp {
+
+using Coroutine = galay::kernel::Task<void>;
 
 // MCP协议版本
 constexpr const char* MCP_VERSION = "2024-11-05";
