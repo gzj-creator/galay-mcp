@@ -8,6 +8,7 @@
 #include <iostream>
 #include <string>
 #include <signal.h>
+#include <thread>
 
 using namespace galay::mcp;
 using namespace galay::kernel;
@@ -153,7 +154,10 @@ int main(int argc, char* argv[]) {
     std::cout << "========================================\n\n";
 
     try {
-        McpHttpServer server(host, port);
+        const unsigned int hardware_threads = std::thread::hardware_concurrency();
+        const size_t io_schedulers = hardware_threads == 0 ? 8U : static_cast<size_t>(hardware_threads);
+
+        McpHttpServer server(host, port, io_schedulers, 0);
         g_server = &server;
 
         signal(SIGINT, signalHandler);
@@ -187,6 +191,7 @@ int main(int argc, char* argv[]) {
                         promptArgs, getExamplePrompt);
 
         std::cout << "Server configured with:\n";
+        std::cout << "  - IO schedulers: " << io_schedulers << "\n";
         std::cout << "  - Tools: echo, add\n";
         std::cout << "  - Resources: example://hello, example://info\n";
         std::cout << "  - Prompts: greeting\n";

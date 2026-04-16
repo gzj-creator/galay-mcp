@@ -3,7 +3,9 @@
 
 #include "galay-mcp/common/McpBase.h"
 #include "galay-mcp/common/McpJson.h"
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace galay {
@@ -34,6 +36,42 @@ inline JsonRpcResponse makeResultResponse(int64_t id, const JsonString& result) 
     response.id = id;
     response.result = result;
     return response;
+}
+
+/**
+ * @brief Build a compact JSON-RPC request body for HTTP transport.
+ * @param id Request identifier written into the JSON-RPC envelope.
+ * @param method JSON-RPC method name. The caller must pass a valid UTF-8 name.
+ * @param params Optional serialized JSON value. When provided as an empty string,
+ *        this helper emits `params: {}` so callers can request an empty object
+ *        without creating another temporary buffer.
+ * @return Serialized JSON request body ready to send as an HTTP payload.
+ */
+inline JsonString makeJsonRpcRequestBody(int64_t id,
+                                         std::string_view method,
+                                         std::optional<std::string_view> params = std::nullopt) {
+    const std::string id_string = std::to_string(id);
+    const size_t params_size = params.has_value() ? params->size() : 0;
+
+    JsonString body;
+    body.reserve(48 + id_string.size() + method.size() + params_size);
+    body += "{\"jsonrpc\":\"2.0\",\"id\":";
+    body += id_string;
+    body += ",\"method\":\"";
+    body.append(method.data(), method.size());
+    body.push_back('"');
+
+    if (params.has_value()) {
+        body += ",\"params\":";
+        if (params->empty()) {
+            body += "{}";
+        } else {
+            body.append(params->data(), params->size());
+        }
+    }
+
+    body.push_back('}');
+    return body;
 }
 
 inline JsonRpcResponse makeErrorResponse(int64_t id,

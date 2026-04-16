@@ -1,76 +1,50 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-# MCP 性能测试运行脚本
-# 该脚本运行所有性能测试并收集结果
+BUILD_DIR="${1:-${BUILD_DIR:-build}}"
+BIN_DIR="${BUILD_DIR}/bin"
 
-set -e
-
-echo "=== MCP Benchmark Suite ==="
-echo ""
-
-# 检查构建目录
-if [ ! -d "build" ]; then
-    echo "✗ Build directory not found. Please run 'mkdir build && cd build && cmake .. && make' first."
-    exit 1
-fi
-
-cd build
-
-# 检查性能测试可执行文件
-BENCHMARKS=(
-    "B1-StdioPerformance"
-    "B2-HttpPerformance"
-    "B3-ConcurrentRequests"
-)
-
-echo "Checking benchmark executables..."
-for BENCH in "${BENCHMARKS[@]}"; do
-    if [ ! -f "bin/$BENCH" ]; then
-        echo "✗ $BENCH not found. Please build the project first."
+require_bin() {
+    local path="$1"
+    if [ ! -x "${path}" ]; then
+        echo "missing executable: ${path}" >&2
         exit 1
     fi
-done
-echo "✓ All benchmark executables found"
-echo ""
+}
 
-# 运行 Stdio 性能测试
-echo "=== Running Stdio Performance Test ==="
-if [ -f "bin/T2-StdioServer" ]; then
-    ./bin/B1-StdioPerformance | ./bin/T2-StdioServer
-    echo "✓ Stdio performance test completed"
-else
-    echo "✗ T2-StdioServer not found, skipping Stdio benchmark"
-fi
-echo ""
+echo "=== MCP Benchmark Suite ==="
+echo "build_dir: ${BUILD_DIR}"
+echo
 
-# 运行 HTTP 性能测试（需要先启动服务器）
-echo "=== Running HTTP Performance Test ==="
-echo "Note: Make sure HTTP server is running on http://127.0.0.1:8080/mcp"
-echo "You can start it with: ./bin/T4-HttpServer"
-echo ""
-read -p "Press Enter when server is ready, or Ctrl+C to skip..."
+require_bin "${BIN_DIR}/B1-stdio_performance"
+require_bin "${BIN_DIR}/B2-http_performance"
+require_bin "${BIN_DIR}/B3-concurrent_requests"
+require_bin "${BIN_DIR}/T2-stdio_server"
+require_bin "${BIN_DIR}/T4-http_server"
 
-if [ -f "bin/B2-HttpPerformance" ]; then
-    ./bin/B2-HttpPerformance
-    echo "✓ HTTP performance test completed"
-fi
-echo ""
+echo "== B1 stdio benchmark =="
+mkfifo /tmp/galay-mcp-b1-c2s /tmp/galay-mcp-b1-s2c
+"${BIN_DIR}/T2-stdio_server" < /tmp/galay-mcp-b1-c2s > /tmp/galay-mcp-b1-s2c &
+SERVER_PID=$!
+trap 'kill ${SERVER_PID} >/dev/null 2>&1 || true; wait ${SERVER_PID} 2>/dev/null || true; rm -f /tmp/galay-mcp-b1-c2s /tmp/galay-mcp-b1-s2c' EXIT
+"${BIN_DIR}/B1-stdio_performance" 1000 > /tmp/galay-mcp-b1-c2s < /tmp/galay-mcp-b1-s2c
+kill ${SERVER_PID} >/dev/null 2>&1 || true
+wait ${SERVER_PID} 2>/dev/null || true
+rm -f /tmp/galay-mcp-b1-c2s /tmp/galay-mcp-b1-s2c
+trap - EXIT
+echo
 
-# 运行并发测试
-echo "=== Running Concurrent Requests Test ==="
-echo "Note: Make sure HTTP server is running on http://127.0.0.1:8080/mcp"
-echo ""
-read -p "Press Enter when server is ready, or Ctrl+C to skip..."
+echo "== B2/B3 HTTP benchmarks =="
+echo "start server in another terminal:"
+echo "  ${BIN_DIR}/T4-http_server 8080 0.0.0.0"
+echo
+read -r -p "Press Enter when the HTTP server is ready, or Ctrl+C to abort..."
+"${BIN_DIR}/B2-http_performance" --url http://127.0.0.1:8080/mcp --connections 8 --requests 2000 --io 2 --compute 0
+echo
+"${BIN_DIR}/B3-concurrent_requests" --url http://127.0.0.1:8080/mcp --workers 10 --requests 100
+echo
 
-if [ -f "bin/B3-ConcurrentRequests" ]; then
-    ./bin/B3-ConcurrentRequests --threads 10 --requests 100
-    echo "✓ Concurrent requests test completed"
-fi
-echo ""
-
-echo "=== All Benchmarks Complete ==="
-echo ""
-echo "Remember to save results to docs/ directory:"
-echo "  - docs/B1-Stdio性能测试.md"
-echo "  - docs/B2-HTTP性能测试.md"
-echo "  - docs/B3-并发请求压测.md"
+echo "=== Benchmark reminders ==="
+echo "- Save raw stdout for every run."
+echo "- B1 uses the local stdio server target."
+echo "- B2/B3 expect a running HTTP MCP server at http://127.0.0.1:8080/mcp."

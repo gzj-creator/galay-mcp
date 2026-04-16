@@ -5,6 +5,7 @@
  */
 
 #include "galay-mcp/client/McpHttpClient.h"
+#include "galay-kernel/common/Sleep.hpp"
 #include "galay-kernel/kernel/Runtime.h"
 #include <iostream>
 #include <chrono>
@@ -99,20 +100,44 @@ private:
 // 工作协程
 Coroutine workerCoroutine(McpHttpClient& client, const std::string& url,
                           size_t requestsPerWorker, ConcurrentStats& stats,
-                          std::atomic<int>& completedWorkers) {
+                          std::atomic<int>& readyWorkers,
+                          std::atomic<int>& finishedWorkers,
+                          std::atomic<int>& disconnectedWorkers,
+                          std::atomic<int>& startupFailures,
+                          std::atomic<bool>& benchmarkStarted,
+                          std::atomic<bool>& benchmarkAborted) {
     // 连接并初始化
     auto connectResult = co_await client.connect(url);
     if (!connectResult) {
         stats.addError();
-        completedWorkers++;
+        startupFailures++;
+        finishedWorkers++;
+        disconnectedWorkers++;
         co_return;
     }
 
     std::expected<void, McpError> initResult;
-    co_await client.initialize("concurrent-client", "1.0.0", initResult).wait();
+    co_await client.initialize("concurrent-client", "1.0.0", initResult);
     if (!initResult) {
         stats.addError();
-        completedWorkers++;
+        startupFailures++;
+        finishedWorkers++;
+        co_await client.disconnect();
+        disconnectedWorkers++;
+        co_return;
+    }
+
+    readyWorkers++;
+
+    while (!benchmarkStarted.load(std::memory_order_acquire) &&
+           !benchmarkAborted.load(std::memory_order_acquire)) {
+        co_await sleep(std::chrono::milliseconds(1));
+    }
+
+    if (benchmarkAborted.load(std::memory_order_acquire)) {
+        finishedWorkers++;
+        co_await client.disconnect();
+        disconnectedWorkers++;
         co_return;
     }
 
@@ -127,7 +152,7 @@ Coroutine workerCoroutine(McpHttpClient& client, const std::string& url,
 
         auto start = high_resolution_clock::now();
         std::expected<JsonString, McpError> callResult;
-        co_await client.callTool("echo", args, callResult).wait();
+        co_await client.callTool("echo", args, callResult);
         auto end = high_resolution_clock::now();
 
         if (callResult) {
@@ -138,8 +163,9 @@ Coroutine workerCoroutine(McpHttpClient& client, const std::string& url,
         }
     }
 
+    finishedWorkers++;
     co_await client.disconnect();
-    completedWorkers++;
+    disconnectedWorkers++;
     co_return;
 }
 
@@ -152,7 +178,12 @@ void runConcurrentTest(const std::string& url, size_t numWorkers, size_t request
     std::cout << "\nStarting test..." << std::endl;
 
     ConcurrentStats stats;
-    std::atomic<int> completedWorkers(0);
+    std::atomic<int> readyWorkers(0);
+    std::atomic<int> finishedWorkers(0);
+    std::atomic<int> disconnectedWorkers(0);
+    std::atomic<int> startupFailures(0);
+    std::atomic<bool> benchmarkStarted(false);
+    std::atomic<bool> benchmarkAborted(false);
 
     // 创建Runtime
     Runtime runtime = RuntimeBuilder().ioSchedulerCount(4).computeSchedulerCount(2).build();
@@ -165,21 +196,65 @@ void runConcurrentTest(const std::string& url, size_t numWorkers, size_t request
     }
 
     // 开始测试
-    auto testStart = high_resolution_clock::now();
-
     // 启动所有工作协程
     for (size_t i = 0; i < numWorkers; ++i) {
         auto* scheduler = runtime.getNextIOScheduler();
-        scheduler->spawn(workerCoroutine(*clients[i], url, requestsPerWorker, stats, completedWorkers));
+        if (!scheduler ||
+            !scheduleTask(scheduler,
+                          workerCoroutine(*clients[i],
+                                          url,
+                                          requestsPerWorker,
+                                          stats,
+                                          readyWorkers,
+                                          finishedWorkers,
+                                          disconnectedWorkers,
+                                          startupFailures,
+                                          benchmarkStarted,
+                                          benchmarkAborted))) {
+            std::cerr << "Failed to schedule worker " << i << std::endl;
+            stats.addError();
+            startupFailures++;
+            finishedWorkers++;
+            disconnectedWorkers++;
+        }
     }
 
-    // 等待所有工作协程完成
-    while (completedWorkers.load() < static_cast<int>(numWorkers)) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    const auto deadline = high_resolution_clock::now() + std::chrono::seconds(30);
+    while (readyWorkers.load(std::memory_order_acquire) + startupFailures.load(std::memory_order_acquire) <
+               static_cast<int>(numWorkers) &&
+           high_resolution_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 
-    auto testEnd = high_resolution_clock::now();
-    double totalTestTimeMs = duration_cast<milliseconds>(testEnd - testStart).count();
+    if (readyWorkers.load(std::memory_order_acquire) + startupFailures.load(std::memory_order_acquire) <
+            static_cast<int>(numWorkers) ||
+        startupFailures.load(std::memory_order_acquire) != 0) {
+        benchmarkAborted.store(true, std::memory_order_release);
+        while (disconnectedWorkers.load(std::memory_order_acquire) < static_cast<int>(numWorkers) &&
+               high_resolution_clock::now() < deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        runtime.stop();
+        std::cerr << "Benchmark startup failed" << std::endl;
+        return;
+    }
+
+    benchmarkStarted.store(true, std::memory_order_release);
+    const auto testStart = high_resolution_clock::now();
+
+    while (finishedWorkers.load(std::memory_order_acquire) < static_cast<int>(numWorkers) &&
+           high_resolution_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    const auto testEnd = high_resolution_clock::now();
+    const double totalTestTimeMs =
+        duration_cast<microseconds>(testEnd - testStart).count() / 1000.0;
+
+    while (disconnectedWorkers.load(std::memory_order_acquire) < static_cast<int>(numWorkers) &&
+           high_resolution_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
 
     runtime.stop();
 

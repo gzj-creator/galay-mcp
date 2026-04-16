@@ -1,5 +1,6 @@
 #include "galay-mcp/client/McpHttpClient.h"
 #include "galay-mcp/common/McpJsonParser.h"
+#include "galay-mcp/common/McpProtocolUtils.h"
 
 namespace galay {
 namespace mcp {
@@ -325,14 +326,10 @@ McpHttpClient::CloseAwaitable McpHttpClient::disconnect() {
 Coroutine McpHttpClient::sendRequest(std::string_view method,
                                      std::optional<JsonString> params,
                                      std::expected<JsonString, McpError>& result) {
-    // 构建JSON-RPC请求
     const int64_t requestId = generateRequestId();
-    JsonRpcRequest request;
-    request.id = requestId;
-    request.method = std::string(method);
-    request.params = std::move(params);
-
-    std::string requestBody = request.toJson();
+    const std::optional<std::string_view> params_view =
+        params.has_value() ? std::optional<std::string_view>(*params) : std::nullopt;
+    std::string requestBody = protocol::makeJsonRpcRequestBody(requestId, method, params_view);
 
     // 如果连接断开，重新连接
     if (!m_connected.load()) {

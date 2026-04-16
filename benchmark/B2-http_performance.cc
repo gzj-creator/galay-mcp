@@ -5,6 +5,7 @@
  */
 
 #include "galay-mcp/client/McpHttpClient.h"
+#include "galay-kernel/common/Sleep.hpp"
 #include "galay-kernel/kernel/Runtime.h"
 #include <iostream>
 #include <chrono>
@@ -140,20 +141,44 @@ Coroutine workerCoroutine(McpHttpClient& client,
                           Operation op,
                           size_t requestsPerWorker,
                           ConcurrentStats& stats,
-                          std::atomic<int>& completedWorkers,
+                          std::atomic<int>& readyWorkers,
+                          std::atomic<int>& finishedWorkers,
+                          std::atomic<int>& disconnectedWorkers,
+                          std::atomic<int>& startupFailures,
+                          std::atomic<bool>& benchmarkStarted,
+                          std::atomic<bool>& benchmarkAborted,
                           size_t workerId) {
     auto connectResult = co_await client.connect(url);
     if (!connectResult) {
         stats.addError();
-        completedWorkers++;
+        startupFailures++;
+        finishedWorkers++;
+        disconnectedWorkers++;
         co_return;
     }
 
     std::expected<void, McpError> initResult;
-    co_await client.initialize("benchmark-http-client-" + std::to_string(workerId), "1.0.0", initResult).wait();
+    co_await client.initialize("benchmark-http-client-" + std::to_string(workerId), "1.0.0", initResult);
     if (!initResult) {
         stats.addError();
-        completedWorkers++;
+        startupFailures++;
+        finishedWorkers++;
+        co_await client.disconnect();
+        disconnectedWorkers++;
+        co_return;
+    }
+
+    readyWorkers++;
+
+    while (!benchmarkStarted.load(std::memory_order_acquire) &&
+           !benchmarkAborted.load(std::memory_order_acquire)) {
+        co_await sleep(std::chrono::milliseconds(1));
+    }
+
+    if (benchmarkAborted.load(std::memory_order_acquire)) {
+        finishedWorkers++;
+        co_await client.disconnect();
+        disconnectedWorkers++;
         co_return;
     }
 
@@ -164,7 +189,7 @@ Coroutine workerCoroutine(McpHttpClient& client,
         switch (op) {
             case Operation::Ping: {
                 std::expected<void, McpError> pingResult;
-                co_await client.ping(pingResult).wait();
+                co_await client.ping(pingResult);
                 ok = pingResult.has_value();
                 break;
             }
@@ -176,31 +201,31 @@ Coroutine workerCoroutine(McpHttpClient& client,
                 argsWriter.EndObject();
                 JsonString args = argsWriter.TakeString();
                 std::expected<JsonString, McpError> callResult;
-                co_await client.callTool("echo", args, callResult).wait();
+                co_await client.callTool("echo", args, callResult);
                 ok = callResult.has_value();
                 break;
             }
             case Operation::ResourceRead: {
                 std::expected<std::string, McpError> readResult;
-                co_await client.readResource("example://hello", readResult).wait();
+                co_await client.readResource("example://hello", readResult);
                 ok = readResult.has_value();
                 break;
             }
             case Operation::ToolsList: {
                 std::expected<std::vector<Tool>, McpError> result;
-                co_await client.listTools(result).wait();
+                co_await client.listTools(result);
                 ok = result.has_value();
                 break;
             }
             case Operation::ResourcesList: {
                 std::expected<std::vector<Resource>, McpError> result;
-                co_await client.listResources(result).wait();
+                co_await client.listResources(result);
                 ok = result.has_value();
                 break;
             }
             case Operation::PromptsList: {
                 std::expected<std::vector<Prompt>, McpError> result;
-                co_await client.listPrompts(result).wait();
+                co_await client.listPrompts(result);
                 ok = result.has_value();
                 break;
             }
@@ -215,8 +240,9 @@ Coroutine workerCoroutine(McpHttpClient& client,
         }
     }
 
+    finishedWorkers++;
     co_await client.disconnect();
-    completedWorkers++;
+    disconnectedWorkers++;
     co_return;
 }
 
@@ -236,21 +262,72 @@ static void runConcurrentTest(Runtime& runtime,
     std::cout << "\nStarting test..." << std::endl;
 
     ConcurrentStats stats;
-    std::atomic<int> completedWorkers(0);
-
-    auto testStart = high_resolution_clock::now();
+    std::atomic<int> readyWorkers(0);
+    std::atomic<int> finishedWorkers(0);
+    std::atomic<int> disconnectedWorkers(0);
+    std::atomic<int> startupFailures(0);
+    std::atomic<bool> benchmarkStarted(false);
+    std::atomic<bool> benchmarkAborted(false);
 
     for (size_t i = 0; i < numWorkers; ++i) {
         auto* scheduler = runtime.getNextIOScheduler();
-        scheduler->spawn(workerCoroutine(*clients[i], url, op, requestsPerWorker, stats, completedWorkers, i));
+        if (!scheduler ||
+            !scheduleTask(scheduler,
+                          workerCoroutine(*clients[i],
+                                          url,
+                                          op,
+                                          requestsPerWorker,
+                                          stats,
+                                          readyWorkers,
+                                          finishedWorkers,
+                                          disconnectedWorkers,
+                                          startupFailures,
+                                          benchmarkStarted,
+                                          benchmarkAborted,
+                                          i))) {
+            std::cerr << "Failed to schedule worker " << i << std::endl;
+            stats.addError();
+            startupFailures++;
+            finishedWorkers++;
+            disconnectedWorkers++;
+        }
     }
 
-    while (completedWorkers.load() < static_cast<int>(numWorkers)) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    const auto deadline = high_resolution_clock::now() + std::chrono::seconds(30);
+    while (readyWorkers.load(std::memory_order_acquire) + startupFailures.load(std::memory_order_acquire) <
+               static_cast<int>(numWorkers) &&
+           high_resolution_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 
-    auto testEnd = high_resolution_clock::now();
-    double totalTestTimeMs = duration_cast<milliseconds>(testEnd - testStart).count();
+    if (readyWorkers.load(std::memory_order_acquire) + startupFailures.load(std::memory_order_acquire) <
+            static_cast<int>(numWorkers) ||
+        startupFailures.load(std::memory_order_acquire) != 0) {
+        benchmarkAborted.store(true, std::memory_order_release);
+        while (disconnectedWorkers.load(std::memory_order_acquire) < static_cast<int>(numWorkers) &&
+               high_resolution_clock::now() < deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        std::cerr << "Benchmark startup failed for " << operationName(op) << std::endl;
+        return;
+    }
+
+    benchmarkStarted.store(true, std::memory_order_release);
+    const auto testStart = high_resolution_clock::now();
+
+    while (finishedWorkers.load(std::memory_order_acquire) < static_cast<int>(numWorkers) &&
+           high_resolution_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    const auto testEnd = high_resolution_clock::now();
+    const double totalTestTimeMs =
+        duration_cast<microseconds>(testEnd - testStart).count() / 1000.0;
+
+    while (disconnectedWorkers.load(std::memory_order_acquire) < static_cast<int>(numWorkers) &&
+           high_resolution_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
 
     stats.printReport(operationName(op), totalTestTimeMs, totalRequests);
 }
@@ -259,19 +336,19 @@ static void printUsage(const char* prog) {
     std::cout << "Usage: " << prog << " [options]\n";
     std::cout << "Options:\n";
     std::cout << "  --url <url>           Server URL (default: http://127.0.0.1:8080/mcp)\n";
-    std::cout << "  --connections <n>     Number of concurrent connections (default: 32)\n";
-    std::cout << "  --requests <n>        Requests per connection per test (default: 1000)\n";
-    std::cout << "  --io <n>              IO scheduler count (default: 4)\n";
-    std::cout << "  --compute <n>         Compute scheduler count (default: 2)\n";
+    std::cout << "  --connections <n>     Number of concurrent connections (default: 8)\n";
+    std::cout << "  --requests <n>        Requests per connection per test (default: 2000)\n";
+    std::cout << "  --io <n>              IO scheduler count (default: 2)\n";
+    std::cout << "  --compute <n>         Compute scheduler count (default: 0)\n";
     std::cout << "  --help                Show this help message\n";
 }
 
 int main(int argc, char* argv[]) {
     std::string url = "http://127.0.0.1:8080/mcp";
-    size_t connections = 32;
-    size_t requestsPerConn = 1000;
-    size_t ioSchedulers = 4;
-    size_t computeSchedulers = 2;
+    size_t connections = 8;
+    size_t requestsPerConn = 2000;
+    size_t ioSchedulers = 2;
+    size_t computeSchedulers = 0;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
