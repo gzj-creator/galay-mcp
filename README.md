@@ -232,6 +232,15 @@ rm -f /tmp/galay-mcp-c2s /tmp/galay-mcp-s2c
 | `benchmark/B2-http_performance.cc` | `B2-http_performance` | 同上 |
 | `benchmark/B3-concurrent_requests.cc` | `B3-concurrent_requests` | 同上 |
 
+Rust 对标与发布边界：
+
+- `B1-stdio_performance` 当前没有公平 Rust stdio MCP 基线，只能按 `internal-only` 处理
+- `B2/B3` 的推荐 Rust 基线是 `axum` / `hyper` / `tokio`
+- compare 约定位于 `benchmark/compare/rust/README.md`
+- `scripts/S3-RunBenchmarks.sh` 已修正为当前真实 target 名与运行方式
+- `scripts/S6-RunRustCompare.sh` 优先使用 PATH 中的 Rust toolchain；当默认 `~/.cargo` 不可写时会回退到临时 `CARGO_HOME`，也可手工传入 `CARGO_HOME` / `CARGO_TARGET_DIR`
+- 没有同机、同构建类型、同 workload 的 Rust 基线时，`B2/B3` 也不能对外作为公开 benchmark 结论
+
 ## 已知限制
 
 - 当前默认构建没有 `stdio-only` 依赖裁剪开关。
