@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(galay-mcp VERSION 1.1.1 LANGUAGES CXX)
+project(galay-mcp VERSION 1.1.2 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -24,8 +24,8 @@ if(NOT TARGET simdjson::simdjson)
     )
 endif()
 
-find_package(galay-kernel CONFIG REQUIRED)
-find_package(GalayHttp CONFIG REQUIRED)
+find_package(galay-kernel 3.4.4 CONFIG REQUIRED)
+find_package(GalayHttp 2.0.2 CONFIG REQUIRED)
 
 # 收集源文件
 file(GLOB_RECURSE SRC_LIST
