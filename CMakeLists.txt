@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(galay-mcp
-    VERSION 1.1.2
+    VERSION 1.1.3
     DESCRIPTION "MCP (Model Context Protocol) implementation based on stdio"
     LANGUAGES CXX
 )

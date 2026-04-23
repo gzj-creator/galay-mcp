@@ -8,6 +8,12 @@
 
 ## [Unreleased]
 
+## [v1.1.3] - 2026-04-23
+
+### Changed
+- 将 `BUILD_TESTS` 收敛为 `BUILD_TESTING` 的兼容别名，未显式设置时默认关闭测试构建。
+- 保留对旧别名的 deprecation 提示，显式使用兼容开关时仍能恢复测试目标。
+
 ## [v1.1.2] - 2026-04-21
 
 ### Changed

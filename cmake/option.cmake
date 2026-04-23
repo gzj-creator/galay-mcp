@@ -6,26 +6,23 @@ if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
 endif()
 
 # 构建目标选项
-set(_galay_mcp_build_testing_provided FALSE)
-if(DEFINED BUILD_TESTING)
-    set(_galay_mcp_build_testing_provided TRUE)
+set(GALAY_MCP_BUILD_TESTS_COMPAT FALSE)
+if(DEFINED BUILD_TESTS AND NOT DEFINED BUILD_TESTING)
+    set(BUILD_TESTING "${BUILD_TESTS}" CACHE BOOL "Build tests with CTest" FORCE)
+    set(GALAY_MCP_BUILD_TESTS_COMPAT TRUE)
+elseif(NOT DEFINED BUILD_TESTING)
+    set(BUILD_TESTING OFF CACHE BOOL "Build tests with CTest" FORCE)
 endif()
 
-option(BUILD_TESTS "Build test executables (deprecated compatibility alias for BUILD_TESTING)" ON)
-if(NOT _galay_mcp_build_testing_provided)
-    set(BUILD_TESTING "${BUILD_TESTS}" CACHE BOOL "Build tests with CTest" FORCE)
-endif()
+option(BUILD_TESTS "Build test executables (deprecated compatibility alias for BUILD_TESTING)" "${BUILD_TESTING}")
 include(CTest)
 
-if(_galay_mcp_build_testing_provided AND NOT BUILD_TESTS STREQUAL BUILD_TESTING)
-    message(DEPRECATION
-        "BUILD_TESTS is deprecated and ignored when BUILD_TESTING is explicitly set. "
-        "Please use BUILD_TESTING only.")
+if(GALAY_MCP_BUILD_TESTS_COMPAT)
+    message(DEPRECATION "BUILD_TESTS is deprecated; use BUILD_TESTING instead.")
 endif()
 
 set(BUILD_TESTS "${BUILD_TESTING}" CACHE BOOL
     "Build test executables (deprecated compatibility alias for BUILD_TESTING)" FORCE)
-unset(_galay_mcp_build_testing_provided)
 
 option(BUILD_BENCHMARKS "Build benchmark executables" ON)
 option(BUILD_EXAMPLES "Build example executables" ON)
