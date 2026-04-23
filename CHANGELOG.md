@@ -8,6 +8,9 @@
 
 ## [Unreleased]
 
+### Changed
+- 将 `galay-http` 依赖消费入口切换为 `find_package(galay-http 2.0.2 CONFIG REQUIRED)` 与 `galay-http::galay-http`，匹配 HTTP 包的小写导出风格。
+
 ## [v1.1.3] - 2026-04-23
 
 ### Changed

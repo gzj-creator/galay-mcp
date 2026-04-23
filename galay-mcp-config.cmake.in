@@ -18,7 +18,7 @@ if(NOT TARGET simdjson::simdjson)
 endif()
 
 find_dependency(galay-kernel 3.4.4 REQUIRED CONFIG)
-find_dependency(GalayHttp 2.0.2 REQUIRED CONFIG)
+find_dependency(galay-http 2.0.2 REQUIRED CONFIG)
 
 include("${CMAKE_CURRENT_LIST_DIR}/galay-mcp-targets.cmake")
 

@@ -25,7 +25,7 @@ if(NOT TARGET simdjson::simdjson)
 endif()
 
 find_package(galay-kernel 3.4.4 CONFIG REQUIRED)
-find_package(GalayHttp 2.0.2 CONFIG REQUIRED)
+find_package(galay-http 2.0.2 CONFIG REQUIRED)
 
 # 收集源文件
 file(GLOB_RECURSE SRC_LIST
@@ -74,7 +74,7 @@ target_include_directories(${PROJECT_NAME} PUBLIC
 # 链接依赖
 target_link_libraries(${PROJECT_NAME} PUBLIC
     simdjson::simdjson
-    GalayHttp::galay-http
+    galay-http::galay-http
     galay-kernel::galay-kernel
 )
 
