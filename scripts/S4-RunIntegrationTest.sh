@@ -9,8 +9,8 @@ CLIENT_BIN="${BUILD_DIR}/bin/T1-stdio_client"
 # 创建命名管道
 PIPE_C2S="/tmp/mcp_client_to_server_$$"
 PIPE_S2C="/tmp/mcp_server_to_client_$$"
-SERVER_LOG="/tmp/mcp_stdio_server_$$.log"
-CLIENT_LOG="/tmp/mcp_stdio_client_$$.log"
+SERVER_LOG="/tmp/stdio_server_$$.log"
+CLIENT_LOG="/tmp/stdio_client_$$.log"
 
 # 清理函数
 cleanup() {

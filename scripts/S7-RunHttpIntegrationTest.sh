@@ -26,7 +26,7 @@ if [ ! -x "$SERVER_BIN" ] || [ ! -x "$CLIENT_BIN" ]; then
 fi
 
 echo "Starting HTTP MCP integration test..."
-"$SERVER_BIN" "$PORT" "$HOST" >/tmp/mcp_http_server_$$.log 2>&1 &
+"$SERVER_BIN" "$PORT" "$HOST" >/tmp/http_server_$$.log 2>&1 &
 SERVER_PID=$!
 
 for _ in $(seq 1 50); do

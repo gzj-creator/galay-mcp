@@ -5,22 +5,22 @@
 1. `galay-mcp/common/*.h`
 2. `galay-mcp/client/*.h`
 3. `galay-mcp/server/*.h`
-4. `galay-mcp/module/galay.mcp.cppm`
+4. `galay-mcp/module/galay_mcp.cppm`
 
 当前对外头文件包括：
 
-- `galay-mcp/common/McpJson.h`
-- `galay-mcp/common/McpBase.h`
-- `galay-mcp/common/McpError.h`
-- `galay-mcp/common/McpSchemaBuilder.h`
-- `galay-mcp/common/McpJsonParser.h`
-- `galay-mcp/common/McpProtocolUtils.h`
-- `galay-mcp/client/McpStdioClient.h`
-- `galay-mcp/client/McpHttpClient.h`
-- `galay-mcp/server/McpStdioServer.h`
-- `galay-mcp/server/McpHttpServer.h`
-- `galay-mcp/module/ModulePrelude.hpp`
-- `galay-mcp/module/galay.mcp.cppm`
+- `galay-mcp/common/mcp_json.h`
+- `galay-mcp/common/mcp_base.h`
+- `galay-mcp/common/mcp_error.h`
+- `galay-mcp/common/schema_builder.h`
+- `galay-mcp/common/json_parser.h`
+- `galay-mcp/common/protocol_utils.h`
+- `galay-mcp/client/stdio_client.h`
+- `galay-mcp/client/http_client.h`
+- `galay-mcp/server/stdio_server.h`
+- `galay-mcp/server/http_server.h`
+- `galay-mcp/module/module_prelude.hpp`
+- `galay-mcp/module/galay_mcp.cppm`
 
 本页优先回答以下检索问题：公开入口是什么、参数 / 返回值是什么、前置条件与失败路径是什么、线程 / 并发语义是什么、示例与测试锚点在哪里。
 
@@ -52,7 +52,7 @@ target_link_libraries(your-target PRIVATE galay-mcp-modules)
 
 ## 2. JSON、协议常量与基础结构
 
-来源：`galay-mcp/common/McpJson.h`、`galay-mcp/common/McpBase.h`
+来源：`galay-mcp/common/mcp_json.h`、`galay-mcp/common/mcp_base.h`
 
 ```cpp
 using JsonString = std::string;
@@ -88,7 +88,7 @@ namespace ErrorCodes {
 
 ### `MessageType`
 
-来源：`galay-mcp/common/McpBase.h`
+来源：`galay-mcp/common/mcp_base.h`
 
 ```cpp
 enum class MessageType {
@@ -108,7 +108,7 @@ enum class MessageType {
 
 ### `ContentType`
 
-来源：`galay-mcp/common/McpBase.h`
+来源：`galay-mcp/common/mcp_base.h`
 
 ```cpp
 enum class ContentType {
@@ -124,7 +124,7 @@ enum class ContentType {
 | `Image` | `data` + `mimeType` |
 | `Resource` | `uri` |
 
-### `McpJson.h` 公开入口
+### `mcp_json.h` 公开入口
 
 ```cpp
 class JsonDocument {
@@ -221,7 +221,7 @@ public:
 
 ## 3. 错误模型
 
-来源：`galay-mcp/common/McpError.h`
+来源：`galay-mcp/common/mcp_error.h`
 
 ### `enum class McpErrorCode`
 
@@ -291,7 +291,7 @@ public:
 
 ## 4. `SchemaBuilder` 与 `PromptArgumentBuilder`
 
-来源：`galay-mcp/common/McpSchemaBuilder.h`
+来源：`galay-mcp/common/schema_builder.h`
 
 ### `SchemaBuilder`
 
@@ -329,7 +329,7 @@ public:
 
 ## 5. `McpJsonParser`
 
-来源：`galay-mcp/common/McpJsonParser.h`
+来源：`galay-mcp/common/json_parser.h`
 
 ```cpp
 struct JsonRpcRequestView {
@@ -370,7 +370,7 @@ std::expected<ParsedJsonRpcResponse, McpError> parseJsonRpcResponse(std::string_
 
 ## 6. `McpProtocolUtils`
 
-来源：`galay-mcp/common/McpProtocolUtils.h`
+来源：`galay-mcp/common/protocol_utils.h`
 
 ```cpp
 namespace protocol {
@@ -402,7 +402,7 @@ JsonString buildListResultFromMap(const MapType& map, const char* key, Extractor
 
 ## 7. `McpStdioServer`
 
-来源：`galay-mcp/server/McpStdioServer.h`
+来源：`galay-mcp/server/stdio_server.h`
 
 ```cpp
 class McpStdioServer {
@@ -458,13 +458,13 @@ public:
 
 ### 示例与测试锚点
 
-- 最小服务器示例：`examples/common/E1-BasicStdioUsageMain.inc`
-- 服务端回归程序：`test/T2-stdio_server.cc`
+- 最小服务器示例：`examples/common/e1_stdio.inc`
+- 服务端回归程序：`test/t2_stdio.cc`
 - 双向管道联调脚本：`scripts/S4-RunIntegrationTest.sh`
 
 ## 8. `McpStdioClient`
 
-来源：`galay-mcp/client/McpStdioClient.h`
+来源：`galay-mcp/client/stdio_client.h`
 
 ```cpp
 class McpStdioClient {
@@ -491,7 +491,7 @@ public:
 说明：
 
 - 拷贝 / 移动被禁用。
-- 请求 / 响应解析直接依赖 `McpJsonParser.h` 中的解析 helper。
+- 请求 / 响应解析直接依赖 `json_parser.h` 中的解析 helper。
 
 ### 入口、前置条件与返回
 
@@ -516,13 +516,13 @@ public:
 
 ### 示例与测试锚点
 
-- 最小客户端示例：`examples/common/E1-BasicStdioUsageMain.inc`
-- 客户端回归程序：`test/T1-stdio_client.cc`
+- 最小客户端示例：`examples/common/e1_stdio.inc`
+- 客户端回归程序：`test/t1_stdio.cc`
 - 原始协议 / 双向联调脚本：`scripts/S2-Run.sh`、`scripts/S4-RunIntegrationTest.sh`
 
 ## 9. `McpHttpServer`
 
-来源：`galay-mcp/server/McpHttpServer.h`
+来源：`galay-mcp/server/http_server.h`
 
 ```cpp
 class McpHttpServer {
@@ -581,13 +581,13 @@ public:
 
 ### 示例与测试锚点
 
-- 最小 HTTP 服务端示例：`examples/common/E2-BasicHttpUsageMain.inc`
-- 服务端回归程序：`test/T4-http_server.cc`
+- 最小 HTTP 服务端示例：`examples/common/e2_http.inc`
+- 服务端回归程序：`test/t4_http.cc`
 - HTTP 集成脚本：`scripts/S7-RunHttpIntegrationTest.sh`
 
 ## 10. `McpHttpClient`
 
-来源：`galay-mcp/client/McpHttpClient.h`
+来源：`galay-mcp/client/http_client.h`
 
 ```cpp
 class McpHttpClient {
@@ -645,28 +645,28 @@ public:
 
 ### 示例与测试锚点
 
-- 最小 HTTP 客户端示例：`examples/common/E2-BasicHttpUsageMain.inc`
-- 客户端回归程序：`test/T3-http_client.cc`
+- 最小 HTTP 客户端示例：`examples/common/e2_http.inc`
+- 客户端回归程序：`test/t3_http.cc`
 - HTTP 集成脚本：`scripts/S7-RunHttpIntegrationTest.sh`
 
 ## 11. 模块导出
 
-来源：`galay-mcp/module/ModulePrelude.hpp`、`galay-mcp/module/galay.mcp.cppm`
+来源：`galay-mcp/module/module_prelude.hpp`、`galay-mcp/module/galay_mcp.cppm`
 
-`ModulePrelude.hpp` 是模块构建使用的兼容前导头：它把标准库、`simdjson`、`galay-http`、`galay-kernel` 与 `galay-mcp` 自身公开头放进全局模块片段，降低混合 include / import 构建的失败概率。
+`module_prelude.hpp` 是模块构建使用的兼容前导头：它把标准库、`simdjson`、`galay-http`、`galay-kernel` 与 `galay-mcp` 自身公开头放进全局模块片段，降低混合 include / import 构建的失败概率。
 
 模块 `galay.mcp` 重新导出以下公共头：
 
-- `McpError.h`
-- `McpJson.h`
-- `McpBase.h`
-- `McpJsonParser.h`
-- `McpSchemaBuilder.h`
-- `McpProtocolUtils.h`
-- `McpStdioClient.h`
-- `McpHttpClient.h`
-- `McpStdioServer.h`
-- `McpHttpServer.h`
+- `mcp_error.h`
+- `mcp_json.h`
+- `mcp_base.h`
+- `json_parser.h`
+- `schema_builder.h`
+- `protocol_utils.h`
+- `stdio_client.h`
+- `http_client.h`
+- `stdio_server.h`
+- `http_server.h`
 
 ## 12. 相关文档
 

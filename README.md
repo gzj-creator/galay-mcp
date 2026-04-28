@@ -51,35 +51,35 @@
 ├── CMakeLists.txt
 ├── galay-mcp/
 │   ├── client/
-│   │   ├── McpStdioClient.h
-│   │   └── McpHttpClient.h
+│   │   ├── stdio_client.h
+│   │   └── http_client.h
 │   ├── server/
-│   │   ├── McpStdioServer.h
-│   │   └── McpHttpServer.h
+│   │   ├── stdio_server.h
+│   │   └── http_server.h
 │   ├── common/
-│   │   ├── McpBase.h
-│   │   ├── McpError.h
-│   │   ├── McpJson.h
-│   │   └── McpSchemaBuilder.h
+│   │   ├── mcp_base.h
+│   │   ├── mcp_error.h
+│   │   ├── mcp_json.h
+│   │   └── schema_builder.h
 │   └── module/
-│       └── galay.mcp.cppm
+│       └── galay_mcp.cppm
 ├── examples/
 │   ├── include/
-│   │   ├── E1-basic_stdio_usage.cc
-│   │   └── E2-basic_http_usage.cc
+│   │   ├── e1_stdio.cc
+│   │   └── e2_http.cc
 │   ├── import/
-│   │   ├── E1-basic_stdio_usage.cc
-│   │   └── E2-basic_http_usage.cc
+│   │   ├── e1_stdio.cc
+│   │   └── e2_http.cc
 │   └── common/
 ├── test/
-│   ├── T1-stdio_client.cc
-│   ├── T2-stdio_server.cc
-│   ├── T3-http_client.cc
-│   └── T4-http_server.cc
+│   ├── t1_stdio.cc
+│   ├── t2_stdio.cc
+│   ├── t3_http.cc
+│   └── t4_http.cc
 ├── benchmark/
-│   ├── B1-stdio_performance.cc
-│   ├── B2-http_performance.cc
-│   └── B3-concurrent_requests.cc
+│   ├── b1_stdio.cc
+│   ├── b2_http.cc
+│   └── b3_conc.cc
 ├── docs/
 └── scripts/
 ```
@@ -189,18 +189,18 @@ rm -f /tmp/galay-mcp-c2s /tmp/galay-mcp-s2c
 - 模块 target：`galay-mcp-modules`（条件生成）
 - 模块名：`galay.mcp`
 - 主要公开头文件：
-  - `galay-mcp/common/McpBase.h`
-  - `galay-mcp/common/McpError.h`
-  - `galay-mcp/common/McpJson.h`
-  - `galay-mcp/common/McpJsonParser.h`
-  - `galay-mcp/common/McpProtocolUtils.h`
-  - `galay-mcp/common/McpSchemaBuilder.h`
-  - `galay-mcp/client/McpStdioClient.h`
-  - `galay-mcp/client/McpHttpClient.h`
-  - `galay-mcp/server/McpStdioServer.h`
-  - `galay-mcp/server/McpHttpServer.h`
-  - `galay-mcp/module/ModulePrelude.hpp`（模块构建兼容前导头）
-  - `galay-mcp/module/galay.mcp.cppm`（模块接口文件）
+  - `galay-mcp/common/mcp_base.h`
+  - `galay-mcp/common/mcp_error.h`
+  - `galay-mcp/common/mcp_json.h`
+  - `galay-mcp/common/json_parser.h`
+  - `galay-mcp/common/protocol_utils.h`
+  - `galay-mcp/common/schema_builder.h`
+  - `galay-mcp/client/stdio_client.h`
+  - `galay-mcp/client/http_client.h`
+  - `galay-mcp/server/stdio_server.h`
+  - `galay-mcp/server/http_server.h`
+  - `galay-mcp/module/module_prelude.hpp`（模块构建兼容前导头）
+  - `galay-mcp/module/galay_mcp.cppm`（模块接口文件）
 
 详细签名与每个入口的前置条件 / 失败路径 / 示例锚点见 [02-API参考](docs/02-API参考.md)。
 
@@ -210,27 +210,27 @@ rm -f /tmp/galay-mcp-c2s /tmp/galay-mcp-s2c
 
 | 来源文件 | target | 运行命令 | 必需环境变量 |
 | --- | --- | --- | --- |
-| `examples/include/E1-basic_stdio_usage.cc` | `E1-BasicStdioUsage` | `./build/bin/E1-BasicStdioUsage server` / `client` | 无 |
-| `examples/import/E1-basic_stdio_usage.cc` | `E1-BasicStdioUsageImport` | 同上（仅模块构建成功时存在） | 无 |
-| `examples/include/E2-basic_http_usage.cc` | `E2-BasicHttpUsage` | `./build/bin/E2-BasicHttpUsage server` / `client http://127.0.0.1:8080/mcp` | 无 |
-| `examples/import/E2-basic_http_usage.cc` | `E2-BasicHttpUsageImport` | 同上（仅模块构建成功时存在） | 无 |
+| `examples/include/e1_stdio.cc` | `E1-BasicStdioUsage` | `./build/bin/E1-BasicStdioUsage server` / `client` | 无 |
+| `examples/import/e1_stdio.cc` | `E1-BasicStdioUsageImport` | 同上（仅模块构建成功时存在） | 无 |
+| `examples/include/e2_http.cc` | `E2-BasicHttpUsage` | `./build/bin/E2-BasicHttpUsage server` / `client http://127.0.0.1:8080/mcp` | 无 |
+| `examples/import/e2_http.cc` | `E2-BasicHttpUsageImport` | 同上（仅模块构建成功时存在） | 无 |
 
 ### 测试
 
 | 来源文件 | target | 说明 |
 | --- | --- | --- |
-| `test/T1-stdio_client.cc` | `T1-stdio_client` | stdio 客户端回归测试 |
-| `test/T2-stdio_server.cc` | `T2-stdio_server` | stdio 服务端回归测试 |
-| `test/T3-http_client.cc` | `T3-http_client` | HTTP 客户端回归测试 |
-| `test/T4-http_server.cc` | `T4-http_server` | HTTP 服务端回归测试 |
+| `test/t1_stdio.cc` | `T1-stdio_client` | stdio 客户端回归测试 |
+| `test/t2_stdio.cc` | `T2-stdio_server` | stdio 服务端回归测试 |
+| `test/t3_http.cc` | `T3-http_client` | HTTP 客户端回归测试 |
+| `test/t4_http.cc` | `T4-http_server` | HTTP 服务端回归测试 |
 
 ### Benchmark
 
 | 来源文件 | target | 状态 |
 | --- | --- | --- |
-| `benchmark/B1-stdio_performance.cc` | `B1-stdio_performance` | 当前文档仅保留真实命令与参数，未附带本次整改新跑出的数字 |
-| `benchmark/B2-http_performance.cc` | `B2-http_performance` | 同上 |
-| `benchmark/B3-concurrent_requests.cc` | `B3-concurrent_requests` | 同上 |
+| `benchmark/b1_stdio.cc` | `B1-stdio_performance` | 当前文档仅保留真实命令与参数，未附带本次整改新跑出的数字 |
+| `benchmark/b2_http.cc` | `B2-http_performance` | 同上 |
+| `benchmark/b3_conc.cc` | `B3-concurrent_requests` | 同上 |
 
 Rust 对标与发布边界：
 
