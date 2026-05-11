@@ -4,3 +4,4 @@ build-*/
 .claude/
 .DS_Store
 benchmark/compare/rust/target/
+benchmark/compare/
