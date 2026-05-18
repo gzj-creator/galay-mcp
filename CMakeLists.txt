@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(galay-mcp
-    VERSION 2.0.0
+    VERSION 2.0.2
     DESCRIPTION "MCP (Model Context Protocol) implementation based on stdio"
     LANGUAGES CXX
 )
@@ -95,6 +95,6 @@ install(FILES
 )
 
 install(EXPORT galay-mcp-targets
-    FILE galay-mcp-targets.cmake
+    FILE galayMcpConfigTargets.cmake
     DESTINATION lib/cmake/galay-mcp
 )
