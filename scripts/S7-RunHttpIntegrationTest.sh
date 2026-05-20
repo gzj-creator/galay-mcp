@@ -6,8 +6,8 @@ BUILD_DIR="${BUILD_DIR:-build}"
 HOST="${HOST:-127.0.0.1}"
 PORT="${PORT:-8080}"
 URL="http://${HOST}:${PORT}/mcp"
-SERVER_BIN="${BUILD_DIR}/bin/T4-http_server"
-CLIENT_BIN="${BUILD_DIR}/bin/T3-http_client"
+SERVER_BIN="${BUILD_DIR}/bin/t4_http"
+CLIENT_BIN="${BUILD_DIR}/bin/t3_http"
 
 cleanup() {
     if [ -n "${SERVER_PID:-}" ]; then

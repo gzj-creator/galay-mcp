@@ -48,3 +48,16 @@
   - 将安装导出的 CMake targets 文件改为 `galayMcpConfigTargets.cmake`，并同步 `galay-mcp-config.cmake` 的 include 路径。
   - Release 安装随主 targets 文件生成 `galayMcpConfigTargets-release.cmake`，统一驼峰导出文件命名。
   - 将 CMake project 版本提升到 `2.0.2`，确保源码版本元数据、tag 与发布记录一致。
+
+## v2.1.0 - 2026-05-20
+
+- 版本级别：中版本（minor）
+- Git 提交消息：`feat: 增加 mcp 库级 BaseLogger 日志入口`
+- Git Tag：`v2.1.0`
+- 自述摘要：
+  - 新增 `galay::mcp::log::set/get` 库级日志入口，使用 `galay-kernel` 的 `BaseLogger` 与独立 logger 槽位，允许用户只启用 galay-mcp 日志。
+  - 新增 `MCP_LOG_*` 埋点宏，并在 stdio/http client 与 server 的连接、协议错误和读写失败路径补充日志。
+  - 新增 `t7_log` 回归测试，验证未设置 logger 和日志级别过滤时不会求值格式化参数。
+  - 将 `galay-http` 依赖提升到 `3.1.0`，继续对齐 `galay-kernel 5.0.0`，并同步 CMake project/package 版本到 `2.1.0`。
+  - 为主库目标启用 `NO_SYSTEM_FROM_IMPORTED`，避免本机旧 `/usr/local/include` 中的 Galway 包头文件抢先命中。
+  - 修正测试和 benchmark 脚本中的可执行文件名，使其匹配小写蛇形测试目标。

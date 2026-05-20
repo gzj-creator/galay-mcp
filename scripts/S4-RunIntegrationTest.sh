@@ -3,8 +3,8 @@
 set -e
 
 BUILD_DIR="${BUILD_DIR:-build}"
-SERVER_BIN="${BUILD_DIR}/bin/T2-stdio_server"
-CLIENT_BIN="${BUILD_DIR}/bin/T1-stdio_client"
+SERVER_BIN="${BUILD_DIR}/bin/t2_stdio"
+CLIENT_BIN="${BUILD_DIR}/bin/t1_stdio"
 
 # 创建命名管道
 PIPE_C2S="/tmp/mcp_client_to_server_$$"

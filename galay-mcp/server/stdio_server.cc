@@ -1,4 +1,5 @@
 #include "galay-mcp/server/stdio_server.h"
+#include "galay-mcp/common/mcp_log.h"
 #include "galay-mcp/common/protocol_utils.h"
 #include <sstream>
 #include <stdexcept>
@@ -109,19 +110,24 @@ void McpStdioServer::addPrompt(const std::string& name,
 
 void McpStdioServer::run() {
     m_running = true;
+    MCP_LOG_INFO("[stdio_server]", "run loop started server={}/{}", m_serverName, m_serverVersion);
 
     while (m_running) {
         auto messageResult = readMessage();
         if (!messageResult) {
             // 读取失败，可能是EOF或错误
             if (m_input->eof()) {
+                MCP_LOG_INFO("[stdio_server]", "input reached eof");
                 break;
             }
+            MCP_LOG_WARN("[stdio_server]", "read message failed error={}", messageResult.error().message());
             continue;
         }
 
         auto parsed = parseJsonRpcRequest(messageResult.value());
         if (!parsed) {
+            MCP_LOG_WARN("[stdio_server]", "json-rpc request parse failed error={}",
+                         parsed.error().details());
             sendError(0, ErrorCodes::PARSE_ERROR, "Parse error", parsed.error().details());
             continue;
         }
@@ -133,6 +139,9 @@ void McpStdioServer::run() {
 }
 
 void McpStdioServer::stop() {
+    if (m_running) {
+        MCP_LOG_INFO("[stdio_server]", "run loop stopping");
+    }
     m_running = false;
 }
 
@@ -161,6 +170,7 @@ void McpStdioServer::handleRequest(const JsonRpcRequestView& request) {
         handlePing(request);
     } else {
         if (request.id.has_value()) {
+            MCP_LOG_WARN("[stdio_server]", "method not found method={} id={}", method, request.id.value());
             sendError(request.id.value(), ErrorCodes::METHOD_NOT_FOUND,
                      "Method not found", method);
         }
@@ -173,12 +183,14 @@ void McpStdioServer::handleInitialize(const JsonRpcRequestView& request) {
     }
 
     if (m_initialized) {
+        MCP_LOG_WARN("[stdio_server]", "initialize rejected: already initialized id={}", request.id.value());
         sendError(request.id.value(), ErrorCodes::INVALID_REQUEST,
                  "Already initialized", "");
         return;
     }
 
     if (!request.hasParams) {
+        MCP_LOG_WARN("[stdio_server]", "initialize missing params id={}", request.id.value());
         sendError(request.id.value(), ErrorCodes::INVALID_PARAMS,
                  "Invalid parameters", "Missing params");
         return;
@@ -186,6 +198,9 @@ void McpStdioServer::handleInitialize(const JsonRpcRequestView& request) {
 
     auto paramsExp = InitializeParams::fromJson(request.params);
     if (!paramsExp) {
+        MCP_LOG_WARN("[stdio_server]", "initialize params parse failed id={} error={}",
+                     request.id.value(),
+                     paramsExp.error().message());
         sendError(request.id.value(), ErrorCodes::INVALID_PARAMS,
                  "Invalid parameters", paramsExp.error().message());
         return;
@@ -204,6 +219,10 @@ void McpStdioServer::handleInitialize(const JsonRpcRequestView& request) {
     sendResponse(response);
 
     m_initialized = true;
+    MCP_LOG_INFO("[stdio_server]", "initialized id={} server={}/{}",
+                 request.id.value(),
+                 m_serverName,
+                 m_serverVersion);
 
     // 发送initialized通知
     sendNotification(Methods::INITIALIZED, EmptyObjectString());
@@ -215,6 +234,7 @@ void McpStdioServer::handleToolsList(const JsonRpcRequestView& request) {
     }
 
     if (!m_initialized) {
+        MCP_LOG_WARN("[stdio_server]", "tools/list before initialization id={}", request.id.value());
         sendError(request.id.value(), ErrorCodes::INVALID_REQUEST,
                  "Not initialized", "");
         return;
@@ -234,6 +254,7 @@ void McpStdioServer::handleToolsCall(const JsonRpcRequestView& request) {
     }
 
     if (!m_initialized) {
+        MCP_LOG_WARN("[stdio_server]", "tools/call before initialization id={}", request.id.value());
         sendError(request.id.value(), ErrorCodes::INVALID_REQUEST,
                  "Not initialized", "");
         return;
@@ -241,6 +262,7 @@ void McpStdioServer::handleToolsCall(const JsonRpcRequestView& request) {
 
     try {
         if (!request.hasParams) {
+            MCP_LOG_WARN("[stdio_server]", "tools/call missing params id={}", request.id.value());
             sendError(request.id.value(), ErrorCodes::INVALID_PARAMS,
                      "Invalid parameters", "Missing params");
             return;
@@ -248,6 +270,7 @@ void McpStdioServer::handleToolsCall(const JsonRpcRequestView& request) {
 
         JsonObject paramsObj;
         if (!JsonHelper::GetObject(request.params, paramsObj)) {
+            MCP_LOG_WARN("[stdio_server]", "tools/call params not object id={}", request.id.value());
             sendError(request.id.value(), ErrorCodes::INVALID_PARAMS,
                      "Invalid parameters", "Params must be object");
             return;
@@ -255,6 +278,7 @@ void McpStdioServer::handleToolsCall(const JsonRpcRequestView& request) {
 
         std::string toolName;
         if (!JsonHelper::GetString(paramsObj, "name", toolName)) {
+            MCP_LOG_WARN("[stdio_server]", "tools/call missing tool name id={}", request.id.value());
             sendError(request.id.value(), ErrorCodes::INVALID_PARAMS,
                      "Invalid parameters", "Missing tool name");
             return;
@@ -264,6 +288,7 @@ void McpStdioServer::handleToolsCall(const JsonRpcRequestView& request) {
 
         auto it = m_tools.find(toolName);
         if (it == m_tools.end()) {
+            MCP_LOG_WARN("[stdio_server]", "tool not found id={} tool={}", request.id.value(), toolName);
             sendError(request.id.value(), ErrorCodes::METHOD_NOT_FOUND,
                      "Tool not found", toolName);
             return;
@@ -279,6 +304,10 @@ void McpStdioServer::handleToolsCall(const JsonRpcRequestView& request) {
         auto result = it->second.handler(arguments);
 
         if (!result) {
+            MCP_LOG_WARN("[stdio_server]", "tool handler failed id={} tool={} error={}",
+                         request.id.value(),
+                         toolName,
+                         result.error().message());
             sendError(request.id.value(), result.error().toJsonRpcErrorCode(),
                      result.error().message(), result.error().details());
             return;
@@ -298,6 +327,7 @@ void McpStdioServer::handleToolsCall(const JsonRpcRequestView& request) {
         sendResponse(response);
 
     } catch (const std::exception& e) {
+        MCP_LOG_ERROR("[stdio_server]", "tools/call threw id={} error={}", request.id.value(), e.what());
         sendError(request.id.value(), ErrorCodes::INTERNAL_ERROR,
                  "Internal error", e.what());
     }
@@ -309,6 +339,7 @@ void McpStdioServer::handleResourcesList(const JsonRpcRequestView& request) {
     }
 
     if (!m_initialized) {
+        MCP_LOG_WARN("[stdio_server]", "resources/list before initialization id={}", request.id.value());
         sendError(request.id.value(), ErrorCodes::INVALID_REQUEST,
                  "Not initialized", "");
         return;
@@ -328,6 +359,7 @@ void McpStdioServer::handleResourcesRead(const JsonRpcRequestView& request) {
     }
 
     if (!m_initialized) {
+        MCP_LOG_WARN("[stdio_server]", "resources/read before initialization id={}", request.id.value());
         sendError(request.id.value(), ErrorCodes::INVALID_REQUEST,
                  "Not initialized", "");
         return;
@@ -335,6 +367,7 @@ void McpStdioServer::handleResourcesRead(const JsonRpcRequestView& request) {
 
     try {
         if (!request.hasParams) {
+            MCP_LOG_WARN("[stdio_server]", "resources/read missing params id={}", request.id.value());
             sendError(request.id.value(), ErrorCodes::INVALID_PARAMS,
                      "Invalid parameters", "Missing params");
             return;
@@ -342,6 +375,7 @@ void McpStdioServer::handleResourcesRead(const JsonRpcRequestView& request) {
 
         JsonObject paramsObj;
         if (!JsonHelper::GetObject(request.params, paramsObj)) {
+            MCP_LOG_WARN("[stdio_server]", "resources/read params not object id={}", request.id.value());
             sendError(request.id.value(), ErrorCodes::INVALID_PARAMS,
                      "Invalid parameters", "Params must be object");
             return;
@@ -349,6 +383,7 @@ void McpStdioServer::handleResourcesRead(const JsonRpcRequestView& request) {
 
         std::string uri;
         if (!JsonHelper::GetString(paramsObj, "uri", uri)) {
+            MCP_LOG_WARN("[stdio_server]", "resources/read missing uri id={}", request.id.value());
             sendError(request.id.value(), ErrorCodes::INVALID_PARAMS,
                      "Invalid parameters", "Missing uri");
             return;
@@ -358,6 +393,7 @@ void McpStdioServer::handleResourcesRead(const JsonRpcRequestView& request) {
 
         auto it = m_resources.find(uri);
         if (it == m_resources.end()) {
+            MCP_LOG_WARN("[stdio_server]", "resource not found id={} uri={}", request.id.value(), uri);
             sendError(request.id.value(), ErrorCodes::METHOD_NOT_FOUND,
                      "Resource not found", uri);
             return;
@@ -367,6 +403,10 @@ void McpStdioServer::handleResourcesRead(const JsonRpcRequestView& request) {
         auto result = it->second.reader(uri);
 
         if (!result) {
+            MCP_LOG_WARN("[stdio_server]", "resource reader failed id={} uri={} error={}",
+                         request.id.value(),
+                         uri,
+                         result.error().message());
             sendError(request.id.value(), result.error().toJsonRpcErrorCode(),
                      result.error().message(), result.error().details());
             return;
@@ -392,6 +432,7 @@ void McpStdioServer::handleResourcesRead(const JsonRpcRequestView& request) {
         sendResponse(response);
 
     } catch (const std::exception& e) {
+        MCP_LOG_ERROR("[stdio_server]", "resources/read threw id={} error={}", request.id.value(), e.what());
         sendError(request.id.value(), ErrorCodes::INTERNAL_ERROR,
                  "Internal error", e.what());
     }
@@ -403,6 +444,7 @@ void McpStdioServer::handlePromptsList(const JsonRpcRequestView& request) {
     }
 
     if (!m_initialized) {
+        MCP_LOG_WARN("[stdio_server]", "prompts/list before initialization id={}", request.id.value());
         sendError(request.id.value(), ErrorCodes::INVALID_REQUEST,
                  "Not initialized", "");
         return;
@@ -422,6 +464,7 @@ void McpStdioServer::handlePromptsGet(const JsonRpcRequestView& request) {
     }
 
     if (!m_initialized) {
+        MCP_LOG_WARN("[stdio_server]", "prompts/get before initialization id={}", request.id.value());
         sendError(request.id.value(), ErrorCodes::INVALID_REQUEST,
                  "Not initialized", "");
         return;
@@ -429,6 +472,7 @@ void McpStdioServer::handlePromptsGet(const JsonRpcRequestView& request) {
 
     try {
         if (!request.hasParams) {
+            MCP_LOG_WARN("[stdio_server]", "prompts/get missing params id={}", request.id.value());
             sendError(request.id.value(), ErrorCodes::INVALID_PARAMS,
                      "Invalid parameters", "Missing params");
             return;
@@ -436,6 +480,7 @@ void McpStdioServer::handlePromptsGet(const JsonRpcRequestView& request) {
 
         JsonObject paramsObj;
         if (!JsonHelper::GetObject(request.params, paramsObj)) {
+            MCP_LOG_WARN("[stdio_server]", "prompts/get params not object id={}", request.id.value());
             sendError(request.id.value(), ErrorCodes::INVALID_PARAMS,
                      "Invalid parameters", "Params must be object");
             return;
@@ -443,6 +488,7 @@ void McpStdioServer::handlePromptsGet(const JsonRpcRequestView& request) {
 
         std::string name;
         if (!JsonHelper::GetString(paramsObj, "name", name)) {
+            MCP_LOG_WARN("[stdio_server]", "prompts/get missing name id={}", request.id.value());
             sendError(request.id.value(), ErrorCodes::INVALID_PARAMS,
                      "Invalid parameters", "Missing prompt name");
             return;
@@ -458,6 +504,7 @@ void McpStdioServer::handlePromptsGet(const JsonRpcRequestView& request) {
 
         auto it = m_prompts.find(name);
         if (it == m_prompts.end()) {
+            MCP_LOG_WARN("[stdio_server]", "prompt not found id={} name={}", request.id.value(), name);
             sendError(request.id.value(), ErrorCodes::METHOD_NOT_FOUND,
                      "Prompt not found", name);
             return;
@@ -467,6 +514,10 @@ void McpStdioServer::handlePromptsGet(const JsonRpcRequestView& request) {
         auto result = it->second.getter(name, arguments);
 
         if (!result) {
+            MCP_LOG_WARN("[stdio_server]", "prompt getter failed id={} name={} error={}",
+                         request.id.value(),
+                         name,
+                         result.error().message());
             sendError(request.id.value(), result.error().toJsonRpcErrorCode(),
                      result.error().message(), result.error().details());
             return;
@@ -479,6 +530,7 @@ void McpStdioServer::handlePromptsGet(const JsonRpcRequestView& request) {
         sendResponse(response);
 
     } catch (const std::exception& e) {
+        MCP_LOG_ERROR("[stdio_server]", "prompts/get threw id={} error={}", request.id.value(), e.what());
         sendError(request.id.value(), ErrorCodes::INTERNAL_ERROR,
                  "Internal error", e.what());
     }
@@ -496,7 +548,12 @@ void McpStdioServer::handlePing(const JsonRpcRequestView& request) {
 }
 
 void McpStdioServer::sendResponse(const JsonRpcResponse& response) {
-    writeMessage(response.toJson());
+    auto result = writeMessage(response.toJson());
+    if (!result) {
+        MCP_LOG_ERROR("[stdio_server]", "write response failed id={} error={}",
+                      response.id,
+                      result.error().message());
+    }
 }
 
 void McpStdioServer::sendError(int64_t id, int code, const std::string& message,
@@ -509,7 +566,12 @@ void McpStdioServer::sendNotification(const std::string& method, const JsonStrin
     notification.method = method;
     notification.params = params;
 
-    writeMessage(notification.toJson());
+    auto result = writeMessage(notification.toJson());
+    if (!result) {
+        MCP_LOG_ERROR("[stdio_server]", "write notification failed method={} error={}",
+                      method,
+                      result.error().message());
+    }
 }
 
 std::expected<std::string, McpError> McpStdioServer::readMessage() {

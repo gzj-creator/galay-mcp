@@ -17,13 +17,13 @@ fi
 cd build
 
 # 检查可执行文件
-if [ ! -f "bin/T2-StdioServer" ]; then
-    echo "✗ T2-StdioServer not found. Please build the project first."
+if [ ! -f "bin/t2_stdio" ]; then
+    echo "✗ t2_stdio not found. Please build the project first."
     exit 1
 fi
 
-if [ ! -f "bin/T1-StdioClient" ]; then
-    echo "✗ T1-StdioClient not found. Please build the project first."
+if [ ! -f "bin/t1_stdio" ]; then
+    echo "✗ t1_stdio not found. Please build the project first."
     exit 1
 fi
 

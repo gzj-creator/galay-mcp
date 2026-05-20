@@ -6,7 +6,7 @@
 set -e
 
 BUILD_DIR="${BUILD_DIR:-build}"
-SERVER="${BUILD_DIR}/bin/T2-stdio_server"
+SERVER="${BUILD_DIR}/bin/t2_stdio"
 TEMP_OUTPUT="/tmp/mcp_test_output_$$"
 TEMP_INPUT="/tmp/mcp_test_input_$$"
 

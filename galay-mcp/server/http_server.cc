@@ -1,5 +1,6 @@
 #include "galay-mcp/server/http_server.h"
 #include "galay-http/utils/rsp_bld.h"
+#include "galay-mcp/common/mcp_log.h"
 #include "galay-mcp/common/protocol_utils.h"
 
 namespace galay {
@@ -113,6 +114,11 @@ void McpHttpServer::start() {
         return;
     }
 
+    MCP_LOG_INFO("[http_server]", "starting host={} port={} io_schedulers={} compute_schedulers={}",
+                 m_host,
+                 m_port,
+                 m_ioSchedulers,
+                 m_computeSchedulers);
     m_router = std::make_unique<http::HttpRouter>();
 
     auto* serverPtr = this;
@@ -128,6 +134,7 @@ void McpHttpServer::start() {
                 try {
                     co_await serverPtr->processRequest(requestBody, responseJson, connectionInitialized);
                 } catch (const std::exception& e) {
+                    MCP_LOG_WARN("[http_server]", "initial request parse failed error={}", e.what());
                     responseJson = serverPtr->createErrorResponse(0, ErrorCodes::PARSE_ERROR,
                                                       "Parse error", e.what());
                 }
@@ -141,6 +148,8 @@ void McpHttpServer::start() {
                 while (true) {
                     auto result = co_await reader.getRequest(nextReq);
                     if (!result) {
+                        MCP_LOG_DEBUG("[http_server]", "connection closed or read failed error={}",
+                                      result.error().message());
                         // 连接关闭或出错
                         co_await conn.close();
                         co_return;
@@ -158,6 +167,7 @@ void McpHttpServer::start() {
                 try {
                     co_await serverPtr->processRequest(requestBody, responseJson, connectionInitialized);
                 } catch (const std::exception& e) {
+                    MCP_LOG_WARN("[http_server]", "keepalive request parse failed error={}", e.what());
                     responseJson = serverPtr->createErrorResponse(0, ErrorCodes::PARSE_ERROR,
                                                       "Parse error", e.what());
                 }
@@ -182,6 +192,9 @@ void McpHttpServer::start() {
 }
 
 void McpHttpServer::stop() {
+    if (m_running) {
+        MCP_LOG_INFO("[http_server]", "stopping host={} port={}", m_host, m_port);
+    }
     m_running = false;
     m_initialized = false;
 }
@@ -217,6 +230,8 @@ Coroutine McpHttpServer::processRequest(const std::string& requestBody, JsonStri
     try {
         auto parsed = parseJsonRpcRequest(requestBody);
         if (!parsed) {
+            MCP_LOG_WARN("[http_server]", "json-rpc request parse failed error={}",
+                         parsed.error().details());
             responseJson = createErrorResponse(0,
                                    parsed.error().toJsonRpcErrorCode(),
                                    parsed.error().message(),
@@ -245,6 +260,7 @@ Coroutine McpHttpServer::processRequest(const std::string& requestBody, JsonStri
             responseJson = handlePing(request);
         } else {
             if (request.id.has_value()) {
+                MCP_LOG_WARN("[http_server]", "method not found method={} id={}", method, request.id.value());
                 responseJson = createErrorResponse(request.id.value(),
                                          ErrorCodes::METHOD_NOT_FOUND,
                                          "Method not found", method);
@@ -253,6 +269,7 @@ Coroutine McpHttpServer::processRequest(const std::string& requestBody, JsonStri
             }
         }
     } catch (const std::exception& e) {
+        MCP_LOG_WARN("[http_server]", "process request failed error={}", e.what());
         responseJson = createErrorResponse(0, ErrorCodes::INVALID_REQUEST,
                                   "Invalid request", e.what());
     }
@@ -270,12 +287,16 @@ JsonString McpHttpServer::handleInitialize(const JsonRpcRequestView& request, bo
     }
 
     if (!request.hasParams) {
+        MCP_LOG_WARN("[http_server]", "initialize missing params id={}", request.id.value());
         return createErrorResponse(request.id.value(), ErrorCodes::INVALID_PARAMS,
                                   "Invalid parameters", "Missing params");
     }
 
     auto paramsExp = InitializeParams::fromJson(request.params);
     if (!paramsExp) {
+        MCP_LOG_WARN("[http_server]", "initialize params parse failed id={} error={}",
+                     request.id.value(),
+                     paramsExp.error().message());
         return createErrorResponse(request.id.value(), ErrorCodes::INVALID_PARAMS,
                                   "Invalid parameters", paramsExp.error().message());
     }
@@ -289,6 +310,10 @@ JsonString McpHttpServer::handleInitialize(const JsonRpcRequestView& request, bo
 
     connectionInitialized = true;
     m_initialized.store(true, std::memory_order_relaxed);
+    MCP_LOG_INFO("[http_server]", "initialized id={} server={}/{}",
+                 request.id.value(),
+                 m_serverName,
+                 m_serverVersion);
 
     return MakeResultResponse(request.id.value(), result);
 }
@@ -299,6 +324,7 @@ JsonString McpHttpServer::handleToolsList(const JsonRpcRequestView& request, boo
     }
 
     if (!connectionInitialized && !m_initialized.load(std::memory_order_relaxed)) {
+        MCP_LOG_WARN("[http_server]", "tools/list before initialization id={}", request.id.value());
         return createErrorResponse(request.id.value(), ErrorCodes::INVALID_REQUEST,
                                   "Not initialized", "");
     }
@@ -313,6 +339,7 @@ Coroutine McpHttpServer::handleToolsCall(const JsonRpcRequestView& request, Json
     }
 
     if (!connectionInitialized && !m_initialized.load(std::memory_order_relaxed)) {
+        MCP_LOG_WARN("[http_server]", "tools/call before initialization id={}", request.id.value());
         responseJson = createErrorResponse(request.id.value(), ErrorCodes::INVALID_REQUEST,
                                   "Not initialized", "");
         co_return;
@@ -320,6 +347,7 @@ Coroutine McpHttpServer::handleToolsCall(const JsonRpcRequestView& request, Json
 
     try {
         if (!request.hasParams) {
+            MCP_LOG_WARN("[http_server]", "tools/call missing params id={}", request.id.value());
             responseJson = createErrorResponse(request.id.value(), ErrorCodes::INVALID_PARAMS,
                                       "Invalid parameters", "Missing params");
             co_return;
@@ -327,6 +355,7 @@ Coroutine McpHttpServer::handleToolsCall(const JsonRpcRequestView& request, Json
 
         JsonObject paramsObj;
         if (!JsonHelper::GetObject(request.params, paramsObj)) {
+            MCP_LOG_WARN("[http_server]", "tools/call params not object id={}", request.id.value());
             responseJson = createErrorResponse(request.id.value(), ErrorCodes::INVALID_PARAMS,
                                       "Invalid parameters", "Params must be object");
             co_return;
@@ -334,6 +363,7 @@ Coroutine McpHttpServer::handleToolsCall(const JsonRpcRequestView& request, Json
 
         std::string toolName;
         if (!JsonHelper::GetString(paramsObj, "name", toolName)) {
+            MCP_LOG_WARN("[http_server]", "tools/call missing tool name id={}", request.id.value());
             responseJson = createErrorResponse(request.id.value(), ErrorCodes::INVALID_PARAMS,
                                       "Invalid parameters", "Missing tool name");
             co_return;
@@ -341,6 +371,7 @@ Coroutine McpHttpServer::handleToolsCall(const JsonRpcRequestView& request, Json
 
         auto it = m_tools.find(toolName);
         if (it == m_tools.end()) {
+            MCP_LOG_WARN("[http_server]", "tool not found id={} tool={}", request.id.value(), toolName);
             responseJson = createErrorResponse(request.id.value(), ErrorCodes::METHOD_NOT_FOUND,
                                       "Tool not found", toolName);
             co_return;
@@ -359,6 +390,10 @@ Coroutine McpHttpServer::handleToolsCall(const JsonRpcRequestView& request, Json
         co_await handler(arguments, result);
 
         if (!result) {
+            MCP_LOG_WARN("[http_server]", "tool handler failed id={} tool={} error={}",
+                         request.id.value(),
+                         toolName,
+                         result.error().message());
             responseJson = createErrorResponse(request.id.value(),
                                       result.error().toJsonRpcErrorCode(),
                                       result.error().message(),
@@ -375,6 +410,7 @@ Coroutine McpHttpServer::handleToolsCall(const JsonRpcRequestView& request, Json
         responseJson = MakeResultResponse(request.id.value(), callResult.toJson());
 
     } catch (const std::exception& e) {
+        MCP_LOG_ERROR("[http_server]", "tools/call threw id={} error={}", request.id.value(), e.what());
         responseJson = createErrorResponse(request.id.value(), ErrorCodes::INTERNAL_ERROR,
                                   "Internal error", e.what());
     }
@@ -387,6 +423,7 @@ JsonString McpHttpServer::handleResourcesList(const JsonRpcRequestView& request,
     }
 
     if (!connectionInitialized && !m_initialized.load(std::memory_order_relaxed)) {
+        MCP_LOG_WARN("[http_server]", "resources/list before initialization id={}", request.id.value());
         return createErrorResponse(request.id.value(), ErrorCodes::INVALID_REQUEST,
                                   "Not initialized", "");
     }
@@ -401,6 +438,7 @@ Coroutine McpHttpServer::handleResourcesRead(const JsonRpcRequestView& request, 
     }
 
     if (!connectionInitialized && !m_initialized.load(std::memory_order_relaxed)) {
+        MCP_LOG_WARN("[http_server]", "resources/read before initialization id={}", request.id.value());
         responseJson = createErrorResponse(request.id.value(), ErrorCodes::INVALID_REQUEST,
                                   "Not initialized", "");
         co_return;
@@ -408,6 +446,7 @@ Coroutine McpHttpServer::handleResourcesRead(const JsonRpcRequestView& request, 
 
     try {
         if (!request.hasParams) {
+            MCP_LOG_WARN("[http_server]", "resources/read missing params id={}", request.id.value());
             responseJson = createErrorResponse(request.id.value(), ErrorCodes::INVALID_PARAMS,
                                       "Invalid parameters", "Missing params");
             co_return;
@@ -415,6 +454,7 @@ Coroutine McpHttpServer::handleResourcesRead(const JsonRpcRequestView& request, 
 
         JsonObject paramsObj;
         if (!JsonHelper::GetObject(request.params, paramsObj)) {
+            MCP_LOG_WARN("[http_server]", "resources/read params not object id={}", request.id.value());
             responseJson = createErrorResponse(request.id.value(), ErrorCodes::INVALID_PARAMS,
                                       "Invalid parameters", "Params must be object");
             co_return;
@@ -422,6 +462,7 @@ Coroutine McpHttpServer::handleResourcesRead(const JsonRpcRequestView& request, 
 
         std::string uri;
         if (!JsonHelper::GetString(paramsObj, "uri", uri)) {
+            MCP_LOG_WARN("[http_server]", "resources/read missing uri id={}", request.id.value());
             responseJson = createErrorResponse(request.id.value(), ErrorCodes::INVALID_PARAMS,
                                       "Invalid parameters", "Missing uri");
             co_return;
@@ -429,6 +470,7 @@ Coroutine McpHttpServer::handleResourcesRead(const JsonRpcRequestView& request, 
 
         auto it = m_resources.find(uri);
         if (it == m_resources.end()) {
+            MCP_LOG_WARN("[http_server]", "resource not found id={} uri={}", request.id.value(), uri);
             responseJson = createErrorResponse(request.id.value(), ErrorCodes::METHOD_NOT_FOUND,
                                       "Resource not found", uri);
             co_return;
@@ -441,6 +483,10 @@ Coroutine McpHttpServer::handleResourcesRead(const JsonRpcRequestView& request, 
         co_await reader(uri, result);
 
         if (!result) {
+            MCP_LOG_WARN("[http_server]", "resource reader failed id={} uri={} error={}",
+                         request.id.value(),
+                         uri,
+                         result.error().message());
             responseJson = createErrorResponse(request.id.value(),
                                       result.error().toJsonRpcErrorCode(),
                                       result.error().message(),
@@ -463,6 +509,7 @@ Coroutine McpHttpServer::handleResourcesRead(const JsonRpcRequestView& request, 
         responseJson = MakeResultResponse(request.id.value(), resultWriter.TakeString());
 
     } catch (const std::exception& e) {
+        MCP_LOG_ERROR("[http_server]", "resources/read threw id={} error={}", request.id.value(), e.what());
         responseJson = createErrorResponse(request.id.value(), ErrorCodes::INTERNAL_ERROR,
                                   "Internal error", e.what());
     }
@@ -475,6 +522,7 @@ JsonString McpHttpServer::handlePromptsList(const JsonRpcRequestView& request, b
     }
 
     if (!connectionInitialized && !m_initialized.load(std::memory_order_relaxed)) {
+        MCP_LOG_WARN("[http_server]", "prompts/list before initialization id={}", request.id.value());
         return createErrorResponse(request.id.value(), ErrorCodes::INVALID_REQUEST,
                                   "Not initialized", "");
     }
@@ -489,6 +537,7 @@ Coroutine McpHttpServer::handlePromptsGet(const JsonRpcRequestView& request, Jso
     }
 
     if (!connectionInitialized && !m_initialized.load(std::memory_order_relaxed)) {
+        MCP_LOG_WARN("[http_server]", "prompts/get before initialization id={}", request.id.value());
         responseJson = createErrorResponse(request.id.value(), ErrorCodes::INVALID_REQUEST,
                                   "Not initialized", "");
         co_return;
@@ -496,6 +545,7 @@ Coroutine McpHttpServer::handlePromptsGet(const JsonRpcRequestView& request, Jso
 
     try {
         if (!request.hasParams) {
+            MCP_LOG_WARN("[http_server]", "prompts/get missing params id={}", request.id.value());
             responseJson = createErrorResponse(request.id.value(), ErrorCodes::INVALID_PARAMS,
                                       "Invalid parameters", "Missing params");
             co_return;
@@ -503,6 +553,7 @@ Coroutine McpHttpServer::handlePromptsGet(const JsonRpcRequestView& request, Jso
 
         JsonObject paramsObj;
         if (!JsonHelper::GetObject(request.params, paramsObj)) {
+            MCP_LOG_WARN("[http_server]", "prompts/get params not object id={}", request.id.value());
             responseJson = createErrorResponse(request.id.value(), ErrorCodes::INVALID_PARAMS,
                                       "Invalid parameters", "Params must be object");
             co_return;
@@ -510,6 +561,7 @@ Coroutine McpHttpServer::handlePromptsGet(const JsonRpcRequestView& request, Jso
 
         std::string name;
         if (!JsonHelper::GetString(paramsObj, "name", name)) {
+            MCP_LOG_WARN("[http_server]", "prompts/get missing name id={}", request.id.value());
             responseJson = createErrorResponse(request.id.value(), ErrorCodes::INVALID_PARAMS,
                                       "Invalid parameters", "Missing prompt name");
             co_return;
@@ -523,6 +575,7 @@ Coroutine McpHttpServer::handlePromptsGet(const JsonRpcRequestView& request, Jso
 
         auto it = m_prompts.find(name);
         if (it == m_prompts.end()) {
+            MCP_LOG_WARN("[http_server]", "prompt not found id={} name={}", request.id.value(), name);
             responseJson = createErrorResponse(request.id.value(), ErrorCodes::METHOD_NOT_FOUND,
                                       "Prompt not found", name);
             co_return;
@@ -535,6 +588,10 @@ Coroutine McpHttpServer::handlePromptsGet(const JsonRpcRequestView& request, Jso
         co_await getter(name, arguments, result);
 
         if (!result) {
+            MCP_LOG_WARN("[http_server]", "prompt getter failed id={} name={} error={}",
+                         request.id.value(),
+                         name,
+                         result.error().message());
             responseJson = createErrorResponse(request.id.value(),
                                       result.error().toJsonRpcErrorCode(),
                                       result.error().message(),
@@ -545,6 +602,7 @@ Coroutine McpHttpServer::handlePromptsGet(const JsonRpcRequestView& request, Jso
         responseJson = MakeResultResponse(request.id.value(), result.value());
 
     } catch (const std::exception& e) {
+        MCP_LOG_ERROR("[http_server]", "prompts/get threw id={} error={}", request.id.value(), e.what());
         responseJson = createErrorResponse(request.id.value(), ErrorCodes::INTERNAL_ERROR,
                                   "Internal error", e.what());
     }

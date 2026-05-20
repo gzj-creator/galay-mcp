@@ -1,4 +1,5 @@
 #include "galay-mcp/client/stdio_client.h"
+#include "galay-mcp/common/mcp_log.h"
 
 namespace galay {
 namespace mcp {
@@ -300,6 +301,10 @@ std::expected<JsonString, McpError> McpStdioClient::sendRequest(std::string_view
 
     auto writeResult = writeMessage(request.toJson());
     if (!writeResult) {
+        MCP_LOG_ERROR("[stdio_client]", "write request failed method={} id={} error={}",
+                      method,
+                      requestId,
+                      writeResult.error().message());
         return std::unexpected(writeResult.error());
     }
 
@@ -307,16 +312,25 @@ std::expected<JsonString, McpError> McpStdioClient::sendRequest(std::string_view
     while (true) {
         auto readResult = readMessage();
         if (!readResult) {
+            MCP_LOG_ERROR("[stdio_client]", "read response failed method={} id={} error={}",
+                          method,
+                          requestId,
+                          readResult.error().message());
             return std::unexpected(readResult.error());
         }
 
         auto docExp = JsonDocument::Parse(readResult.value());
         if (!docExp) {
+            MCP_LOG_WARN("[stdio_client]", "json parse failed method={} id={} error={}",
+                         method,
+                         requestId,
+                         docExp.error().details());
             return std::unexpected(McpError::parseError(docExp.error().details()));
         }
 
         JsonObject obj;
         if (!JsonHelper::GetObject(docExp.value().Root(), obj)) {
+            MCP_LOG_WARN("[stdio_client]", "invalid response object method={} id={}", method, requestId);
             return std::unexpected(McpError::invalidResponse("Invalid response object"));
         }
 
@@ -326,6 +340,7 @@ std::expected<JsonString, McpError> McpStdioClient::sendRequest(std::string_view
             continue;
         }
         if (!idVal.is_int64()) {
+            MCP_LOG_WARN("[stdio_client]", "invalid response id method={} id={}", method, requestId);
             return std::unexpected(McpError::invalidResponse("Invalid response id"));
         }
         const int64_t responseId = idVal.get_int64().value();
@@ -338,12 +353,21 @@ std::expected<JsonString, McpError> McpStdioClient::sendRequest(std::string_view
         if (!errorVal.error() && !errorVal.is_null()) {
             auto errExp = JsonRpcError::fromJson(errorVal.value());
             if (!errExp) {
+                MCP_LOG_WARN("[stdio_client]", "json-rpc error parse failed method={} id={} error={}",
+                             method,
+                             requestId,
+                             errExp.error().message());
                 return std::unexpected(McpError::parseError(errExp.error().message()));
             }
             std::string details;
             if (errExp.value().data.has_value()) {
                 details = errExp.value().data.value();
             }
+            MCP_LOG_WARN("[stdio_client]", "json-rpc error method={} id={} code={} message={}",
+                         method,
+                         requestId,
+                         errExp.value().code,
+                         errExp.value().message);
             return std::unexpected(McpError::fromJsonRpcError(
                 errExp.value().code, errExp.value().message, details));
         }
@@ -352,6 +376,7 @@ std::expected<JsonString, McpError> McpStdioClient::sendRequest(std::string_view
         if (!resultVal.error() && !resultVal.is_null()) {
             std::string raw;
             if (!JsonHelper::GetRawJson(resultVal.value(), raw)) {
+                MCP_LOG_WARN("[stdio_client]", "result serialization failed method={} id={}", method, requestId);
                 return std::unexpected(McpError::parseError("Failed to parse result"));
             }
             return raw;

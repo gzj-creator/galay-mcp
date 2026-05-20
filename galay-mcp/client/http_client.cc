@@ -1,5 +1,6 @@
 #include "galay-mcp/client/http_client.h"
 #include "galay-mcp/common/json_parser.h"
+#include "galay-mcp/common/mcp_log.h"
 #include "galay-mcp/common/protocol_utils.h"
 
 namespace galay {
@@ -335,9 +336,13 @@ Coroutine McpHttpClient::sendRequest(std::string_view method,
     if (!m_connected.load()) {
         auto connectResult = co_await m_httpClient->connect(m_serverUrl);
         if (!connectResult) {
+            MCP_LOG_ERROR("[http_client]", "connect failed url={} error={}",
+                          m_serverUrl,
+                          connectResult.error().message());
             result = std::unexpected(McpError::connectionError(connectResult.error().message()));
             co_return;
         }
+        MCP_LOG_INFO("[http_client]", "connected url={}", m_serverUrl);
         m_connected = true;
     }
 
@@ -359,6 +364,10 @@ Coroutine McpHttpClient::sendRequest(std::string_view method,
 
         if (!httpResult) {
             m_connected = false;
+            MCP_LOG_ERROR("[http_client]", "request failed method={} id={} error={}",
+                          method,
+                          requestId,
+                          httpResult.error().message());
             result = std::unexpected(McpError::connectionError(httpResult.error().message()));
             co_return;
         }
@@ -376,6 +385,10 @@ Coroutine McpHttpClient::sendRequest(std::string_view method,
 
         // 检查HTTP状态码
         if (response.header().code() != http::HttpStatusCode::OK_200) {
+            MCP_LOG_WARN("[http_client]", "unexpected http status method={} id={} status={}",
+                         method,
+                         requestId,
+                         static_cast<int>(response.header().code()));
             result = std::unexpected(McpError::connectionError(
                 "HTTP error: " + std::to_string(static_cast<int>(response.header().code()))));
             co_return;
@@ -385,18 +398,27 @@ Coroutine McpHttpClient::sendRequest(std::string_view method,
         std::string responseBody = response.getBodyStr();
         auto parsed = parseJsonRpcResponse(responseBody);
         if (!parsed) {
+            MCP_LOG_WARN("[http_client]", "json-rpc response parse failed method={} id={} error={}",
+                         method,
+                         requestId,
+                         parsed.error().details());
             result = std::unexpected(McpError::parseError(parsed.error().details()));
             co_return;
         }
 
         const auto& view = parsed.value().response;
         if (view.id != requestId) {
+            MCP_LOG_WARN("[http_client]", "mismatched response id expected={} actual={}", requestId, view.id);
             result = std::unexpected(McpError::invalidResponse("Mismatched response id"));
             co_return;
         }
         if (view.hasError) {
             auto errorExp = JsonRpcError::fromJson(view.error);
             if (!errorExp) {
+                MCP_LOG_WARN("[http_client]", "json-rpc error parse failed method={} id={} error={}",
+                             method,
+                             requestId,
+                             errorExp.error().message());
                 result = std::unexpected(McpError::parseError(errorExp.error().message()));
                 co_return;
             }
@@ -405,6 +427,11 @@ Coroutine McpHttpClient::sendRequest(std::string_view method,
             if (error.data.has_value()) {
                 details = error.data.value();
             }
+            MCP_LOG_WARN("[http_client]", "json-rpc error method={} id={} code={} message={}",
+                         method,
+                         requestId,
+                         error.code,
+                         error.message);
             result = std::unexpected(McpError::fromJsonRpcError(
                 error.code, error.message, details));
             co_return;
@@ -415,6 +442,7 @@ Coroutine McpHttpClient::sendRequest(std::string_view method,
             if (JsonHelper::GetRawJson(view.result, raw)) {
                 result = std::move(raw);
             } else {
+                MCP_LOG_WARN("[http_client]", "result serialization failed method={} id={}", method, requestId);
                 result = std::unexpected(McpError::parseError("Failed to parse result"));
             }
         } else {

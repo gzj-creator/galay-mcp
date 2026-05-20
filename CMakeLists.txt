@@ -1,13 +1,31 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(galay-mcp
-    VERSION 2.0.2
+    VERSION 2.1.0
     DESCRIPTION "MCP (Model Context Protocol) implementation based on stdio"
     LANGUAGES CXX
 )
 
+set(CMAKE_FIND_PACKAGE_PREFER_CONFIG ON)
+set(CMAKE_NO_SYSTEM_FROM_IMPORTED ON)
+
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+get_filename_component(GALAY_MCP_REPO_ROOT "${CMAKE_CURRENT_LIST_DIR}" ABSOLUTE)
+set(GALAY_MCP_PREFIX_CANDIDATES
+    "${GALAY_MCP_REPO_ROOT}/../.galay-prefix/latest"
+    "${GALAY_MCP_REPO_ROOT}/../galay-kernel/install-local"
+    "${GALAY_MCP_REPO_ROOT}/../galay-kernel/_install-smoke-344"
+    "${GALAY_MCP_REPO_ROOT}/../galay-kernel/_install-smoke"
+)
+
+foreach(_galay_mcp_prefix IN LISTS GALAY_MCP_PREFIX_CANDIDATES)
+    if(EXISTS "${_galay_mcp_prefix}")
+        list(APPEND CMAKE_PREFIX_PATH "${_galay_mcp_prefix}")
+    endif()
+endforeach()
+list(REMOVE_DUPLICATES CMAKE_PREFIX_PATH)
 
 # 构建选项 / 平台选项
 include(cmake/option.cmake)

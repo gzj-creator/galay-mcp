@@ -21,14 +21,19 @@ foreach(TEST_SOURCE ${TEST_SOURCES})
     )
 endforeach()
 
-if(BUILD_TESTING AND TARGET T5-http_client_awaitable_surface)
+if(BUILD_TESTING AND TARGET t5_await)
     add_test(
         NAME galay-mcp-http-client-awaitable-surface
-        COMMAND $<TARGET_FILE:T5-http_client_awaitable_surface>
+        COMMAND $<TARGET_FILE:t5_await>
     )
     set_tests_properties(galay-mcp-http-client-awaitable-surface PROPERTIES
         LABELS "surface;compile"
     )
+endif()
+
+if(BUILD_TESTING AND TARGET t7_log)
+    add_test(NAME galay-mcp-log COMMAND t7_log)
+    set_tests_properties(galay-mcp-log PROPERTIES LABELS "unit;log")
 endif()
 
 if(BUILD_TESTING)

@@ -5,6 +5,19 @@
 
 ## [Unreleased]
 
+## [v2.1.0] - 2026-05-20
+
+### Added
+- 新增 `galay::mcp::log::set/get` 库级日志入口，使用 `galay-kernel` 的 `BaseLogger` 与独立 logger 槽位。
+- 新增 `MCP_LOG_*` 埋点宏，并在 stdio/http client 与 server 的连接、协议错误和读写失败路径补充日志。
+- 新增 `t7_log` 回归测试，验证未设置 logger 和级别过滤时不会求值日志格式化参数。
+
+### Changed
+- 将 `galay-http` 依赖提升到 `3.1.0`，继续对齐 `galay-kernel 5.0.0`。
+- 为主库目标启用 `NO_SYSTEM_FROM_IMPORTED`，避免本机旧 `/usr/local/include` 中的 Galway 包头文件抢先命中。
+- 修正测试和 benchmark 脚本中的可执行文件名，使其匹配小写蛇形测试目标。
+- 将 CMake project/package 版本提升到 `2.1.0`。
+
 ## [v2.0.2] - 2026-05-18
 
 ### Changed

@@ -19,12 +19,12 @@ echo
 require_bin "${BIN_DIR}/B1-stdio_performance"
 require_bin "${BIN_DIR}/B2-http_performance"
 require_bin "${BIN_DIR}/B3-concurrent_requests"
-require_bin "${BIN_DIR}/T2-stdio_server"
-require_bin "${BIN_DIR}/T4-http_server"
+require_bin "${BIN_DIR}/t2_stdio"
+require_bin "${BIN_DIR}/t4_http"
 
 echo "== B1 stdio benchmark =="
 mkfifo /tmp/galay-mcp-b1-c2s /tmp/galay-mcp-b1-s2c
-"${BIN_DIR}/T2-stdio_server" < /tmp/galay-mcp-b1-c2s > /tmp/galay-mcp-b1-s2c &
+"${BIN_DIR}/t2_stdio" < /tmp/galay-mcp-b1-c2s > /tmp/galay-mcp-b1-s2c &
 SERVER_PID=$!
 trap 'kill ${SERVER_PID} >/dev/null 2>&1 || true; wait ${SERVER_PID} 2>/dev/null || true; rm -f /tmp/galay-mcp-b1-c2s /tmp/galay-mcp-b1-s2c' EXIT
 "${BIN_DIR}/B1-stdio_performance" 1000 > /tmp/galay-mcp-b1-c2s < /tmp/galay-mcp-b1-s2c
@@ -36,7 +36,7 @@ echo
 
 echo "== B2/B3 HTTP benchmarks =="
 echo "start server in another terminal:"
-echo "  ${BIN_DIR}/T4-http_server 8080 0.0.0.0"
+echo "  ${BIN_DIR}/t4_http 8080 0.0.0.0"
 echo
 read -r -p "Press Enter when the HTTP server is ready, or Ctrl+C to abort..."
 "${BIN_DIR}/B2-http_performance" --url http://127.0.0.1:8080/mcp --connections 8 --requests 2000 --io 2 --compute 0

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(galay-mcp VERSION 2.0.0 LANGUAGES CXX)
+project(galay-mcp VERSION 2.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -24,8 +24,8 @@ if(NOT TARGET simdjson::simdjson)
     )
 endif()
 
-find_package(galay-kernel 4.0.0 CONFIG REQUIRED)
-find_package(galay-http 3.0.0 CONFIG REQUIRED)
+find_package(galay-kernel 5.0.0 CONFIG REQUIRED)
+find_package(galay-http 3.1.0 CONFIG REQUIRED)
 
 # 收集源文件
 file(GLOB_RECURSE SRC_LIST
@@ -37,6 +37,7 @@ file(GLOB_RECURSE SRC_LIST
 
 # 创建库
 add_library(${PROJECT_NAME} STATIC ${SRC_LIST})
+set_property(TARGET ${PROJECT_NAME} PROPERTY NO_SYSTEM_FROM_IMPORTED ON)
 
 # C++23 module 版本（仅在根 CMake 允许时构建）
 if(BUILD_MODULE_EXAMPLES)
