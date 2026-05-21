@@ -1,3 +1,13 @@
+/**
+ * @file stdio_server.h
+ * @brief 基于标准输入输出的MCP协议服务器
+ * @author galay-mcp
+ * @version 1.0.0
+ *
+ * @details 提供通过stdin/stdout方式接收MCP客户端请求的同步服务器实现，
+ *          每条消息以换行符分隔，使用JSON-RPC 2.0格式。
+ */
+
 #ifndef GALAY_MCP_SERVER_MCPSTDIOSERVER_H
 #define GALAY_MCP_SERVER_MCPSTDIOSERVER_H
 
@@ -22,23 +32,17 @@ namespace mcp {
  */
 class McpStdioServer {
 public:
-    // 工具处理函数类型
-    using ToolHandler = std::function<std::expected<JsonString, McpError>(const JsonElement&)>;
+    using ToolHandler = std::function<std::expected<JsonString, McpError>(const JsonElement&)>; ///< 工具处理函数类型
+    using ResourceReader = std::function<std::expected<std::string, McpError>(const std::string&)>; ///< 资源读取函数类型
+    using PromptGetter = std::function<std::expected<JsonString, McpError>(const std::string&, const JsonElement&)>; ///< 提示获取函数类型
 
-    // 资源读取函数类型
-    using ResourceReader = std::function<std::expected<std::string, McpError>(const std::string&)>;
+    McpStdioServer(); ///< 构造Stdio MCP服务器
+    ~McpStdioServer(); ///< 析构函数
 
-    // 提示获取函数类型
-    using PromptGetter = std::function<std::expected<JsonString, McpError>(const std::string&, const JsonElement&)>;
-
-    McpStdioServer();
-    ~McpStdioServer();
-
-    // 禁止拷贝和移动
-    McpStdioServer(const McpStdioServer&) = delete;
-    McpStdioServer& operator=(const McpStdioServer&) = delete;
-    McpStdioServer(McpStdioServer&&) = delete;
-    McpStdioServer& operator=(McpStdioServer&&) = delete;
+    McpStdioServer(const McpStdioServer&) = delete; ///< 禁止拷贝构造
+    McpStdioServer& operator=(const McpStdioServer&) = delete; ///< 禁止拷贝赋值
+    McpStdioServer(McpStdioServer&&) = delete; ///< 禁止移动构造
+    McpStdioServer& operator=(McpStdioServer&&) = delete; ///< 禁止移动赋值
 
     /**
      * @brief 设置服务器信息
@@ -103,71 +107,139 @@ public:
     bool isRunning() const;
 
 private:
-    // 处理请求
+    /**
+     * @brief 处理JSON-RPC请求
+     * @param request 请求视图
+     */
     void handleRequest(const JsonRpcRequestView& request);
 
-    // 处理各种方法
+    /**
+     * @brief 处理initialize方法
+     * @param request 请求视图
+     */
     void handleInitialize(const JsonRpcRequestView& request);
+
+    /**
+     * @brief 处理tools/list方法
+     * @param request 请求视图
+     */
     void handleToolsList(const JsonRpcRequestView& request);
+
+    /**
+     * @brief 处理tools/call方法
+     * @param request 请求视图
+     */
     void handleToolsCall(const JsonRpcRequestView& request);
+
+    /**
+     * @brief 处理resources/list方法
+     * @param request 请求视图
+     */
     void handleResourcesList(const JsonRpcRequestView& request);
+
+    /**
+     * @brief 处理resources/read方法
+     * @param request 请求视图
+     */
     void handleResourcesRead(const JsonRpcRequestView& request);
+
+    /**
+     * @brief 处理prompts/list方法
+     * @param request 请求视图
+     */
     void handlePromptsList(const JsonRpcRequestView& request);
+
+    /**
+     * @brief 处理prompts/get方法
+     * @param request 请求视图
+     */
     void handlePromptsGet(const JsonRpcRequestView& request);
+
+    /**
+     * @brief 处理ping方法
+     * @param request 请求视图
+     */
     void handlePing(const JsonRpcRequestView& request);
 
-    // 发送响应
+    /**
+     * @brief 发送JSON-RPC响应
+     * @param response 响应对象
+     */
     void sendResponse(const JsonRpcResponse& response);
+
+    /**
+     * @brief 发送错误响应
+     * @param id 请求标识符
+     * @param code 错误码
+     * @param message 错误消息
+     * @param details 错误详情
+     */
     void sendError(int64_t id, int code, const std::string& message, const std::string& details = "");
+
+    /**
+     * @brief 发送JSON-RPC通知
+     * @param method 通知方法名
+     * @param params 通知参数JSON
+     */
     void sendNotification(const std::string& method, const JsonString& params);
 
-    // 读取一行JSON消息
+    /**
+     * @brief 从输入流读取一行JSON消息
+     * @return 成功返回JSON字符串，失败返回McpError
+     */
     std::expected<std::string, McpError> readMessage();
 
-    // 写入一行JSON消息
+    /**
+     * @brief 向输出流写入一行JSON消息
+     * @param message 要发送的JSON字符串
+     * @return 成功返回void，失败返回McpError
+     */
     std::expected<void, McpError> writeMessage(const JsonString& message);
 
 private:
-    // 服务器信息
-    std::string m_serverName;
-    std::string m_serverVersion;
+    std::string m_serverName; ///< 服务器名称
+    std::string m_serverVersion; ///< 服务器版本
 
-    // 工具注册表
+    /**
+     * @brief 工具注册信息
+     */
     struct ToolInfo {
-        Tool tool;
-        ToolHandler handler;
+        Tool tool; ///< 工具定义
+        ToolHandler handler; ///< 工具处理函数
     };
-    std::unordered_map<std::string, ToolInfo> m_tools;
-    mutable std::shared_mutex m_toolsMutex;
+    std::unordered_map<std::string, ToolInfo> m_tools; ///< 工具注册表
+    mutable std::shared_mutex m_toolsMutex; ///< 工具注册表读写锁
 
-    // 资源注册表
+    /**
+     * @brief 资源注册信息
+     */
     struct ResourceInfo {
-        Resource resource;
-        ResourceReader reader;
+        Resource resource; ///< 资源定义
+        ResourceReader reader; ///< 资源读取函数
     };
-    std::unordered_map<std::string, ResourceInfo> m_resources;
-    mutable std::shared_mutex m_resourcesMutex;
+    std::unordered_map<std::string, ResourceInfo> m_resources; ///< 资源注册表
+    mutable std::shared_mutex m_resourcesMutex; ///< 资源注册表读写锁
 
-    // 提示注册表
+    /**
+     * @brief 提示注册信息
+     */
     struct PromptInfo {
-        Prompt prompt;
-        PromptGetter getter;
+        Prompt prompt; ///< 提示定义
+        PromptGetter getter; ///< 提示获取函数
     };
-    std::unordered_map<std::string, PromptInfo> m_prompts;
-    mutable std::shared_mutex m_promptsMutex;
+    std::unordered_map<std::string, PromptInfo> m_prompts; ///< 提示注册表
+    mutable std::shared_mutex m_promptsMutex; ///< 提示注册表读写锁
 
-    JsonString m_toolsListCache;
-    JsonString m_resourcesListCache;
-    JsonString m_promptsListCache;
+    JsonString m_toolsListCache; ///< 工具列表缓存
+    JsonString m_resourcesListCache; ///< 资源列表缓存
+    JsonString m_promptsListCache; ///< 提示列表缓存
 
-    // 运行状态
-    std::atomic<bool> m_running;
-    std::atomic<bool> m_initialized;
+    std::atomic<bool> m_running; ///< 服务器运行状态
+    std::atomic<bool> m_initialized; ///< 初始化状态
 
-    // 输入输出流
-    std::istream* m_input;
-    std::ostream* m_output;
-    std::mutex m_outputMutex;
+    std::istream* m_input; ///< 输入流指针
+    std::ostream* m_output; ///< 输出流指针
+    std::mutex m_outputMutex; ///< 输出流互斥锁
 };
 
 } // namespace mcp

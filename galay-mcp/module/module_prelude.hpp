@@ -1,6 +1,14 @@
+/**
+ * @file module_prelude.hpp
+ * @brief C++23模块构建过渡期预编译头文件
+ * @author galay-mcp
+ * @version 1.0.0
+ *
+ * @details 用于C++23模块化构建的自动预编译头文件，
+ *          将第三方/系统/依赖头文件置于全局模块片段中。
+ */
+
 #pragma once
-// Auto prelude for transitional C++23 module builds on Clang/GCC/MSVC.
-// Keep third-party/system/dependency headers in global module fragment.
 
 #if __has_include(<atomic>)
 #include <atomic>

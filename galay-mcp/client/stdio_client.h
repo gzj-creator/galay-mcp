@@ -1,3 +1,13 @@
+/**
+ * @file stdio_client.h
+ * @brief 基于标准输入输出的MCP协议客户端
+ * @author galay-mcp
+ * @version 1.0.0
+ *
+ * @details 提供通过stdin/stdout方式与MCP服务器通信的同步客户端实现，
+ *          每条消息以换行符分隔，使用JSON-RPC 2.0格式。
+ */
+
 #ifndef GALAY_MCP_CLIENT_MCPSTDIOCLIENT_H
 #define GALAY_MCP_CLIENT_MCPSTDIOCLIENT_H
 
@@ -21,14 +31,13 @@ namespace mcp {
  */
 class McpStdioClient {
 public:
-    McpStdioClient();
-    ~McpStdioClient();
+    McpStdioClient(); ///< 构造Stdio MCP客户端
+    ~McpStdioClient(); ///< 析构函数
 
-    // 禁止拷贝和移动
-    McpStdioClient(const McpStdioClient&) = delete;
-    McpStdioClient& operator=(const McpStdioClient&) = delete;
-    McpStdioClient(McpStdioClient&&) = delete;
-    McpStdioClient& operator=(McpStdioClient&&) = delete;
+    McpStdioClient(const McpStdioClient&) = delete; ///< 禁止拷贝构造
+    McpStdioClient& operator=(const McpStdioClient&) = delete; ///< 禁止拷贝赋值
+    McpStdioClient(McpStdioClient&&) = delete; ///< 禁止移动构造
+    McpStdioClient& operator=(McpStdioClient&&) = delete; ///< 禁止移动赋值
 
     /**
      * @brief 初始化连接
@@ -109,43 +118,58 @@ public:
     const ServerCapabilities& getServerCapabilities() const;
 
 private:
-    // 发送请求并等待响应
+    /**
+     * @brief 发送请求并等待响应
+     * @param method JSON-RPC方法名
+     * @param params 可选的请求参数
+     * @return 成功返回响应JSON字符串，失败返回McpError
+     */
     std::expected<JsonString, McpError> sendRequest(std::string_view method,
                                                     const std::optional<JsonString>& params);
 
-    // 发送通知（不等待响应）
+    /**
+     * @brief 发送通知（不等待响应）
+     * @param method JSON-RPC方法名
+     * @param params 可选的通知参数
+     * @return 成功返回void，失败返回McpError
+     */
     std::expected<void, McpError> sendNotification(std::string_view method,
                                                    const std::optional<JsonString>& params);
 
-    // 读取一行JSON消息
+    /**
+     * @brief 从输入流读取一行JSON消息
+     * @return 成功返回JSON字符串，失败返回McpError
+     */
     std::expected<std::string, McpError> readMessage();
 
-    // 写入一行JSON消息
+    /**
+     * @brief 向输出流写入一行JSON消息
+     * @param message 要发送的JSON字符串
+     * @return 成功返回void，失败返回McpError
+     */
     std::expected<void, McpError> writeMessage(const JsonString& message);
 
-    // 生成请求ID
+    /**
+     * @brief 生成递增的请求ID
+     * @return 唯一的请求标识符
+     */
     int64_t generateRequestId();
 
 private:
-    // 客户端信息
-    std::string m_clientName;
-    std::string m_clientVersion;
+    std::string m_clientName; ///< 客户端名称
+    std::string m_clientVersion; ///< 客户端版本
 
-    // 服务器信息
-    ServerInfo m_serverInfo;
-    ServerCapabilities m_serverCapabilities;
+    ServerInfo m_serverInfo; ///< 服务器信息
+    ServerCapabilities m_serverCapabilities; ///< 服务器能力
 
-    // 初始化状态
-    std::atomic<bool> m_initialized;
+    std::atomic<bool> m_initialized; ///< 初始化状态标志
 
-    // 请求ID计数器
-    std::atomic<int64_t> m_requestIdCounter;
+    std::atomic<int64_t> m_requestIdCounter; ///< 请求ID计数器
 
-    // 输入输出流
-    std::istream* m_input;
-    std::ostream* m_output;
-    std::mutex m_outputMutex;
-    std::mutex m_inputMutex;
+    std::istream* m_input; ///< 输入流指针
+    std::ostream* m_output; ///< 输出流指针
+    std::mutex m_outputMutex; ///< 输出流互斥锁
+    std::mutex m_inputMutex; ///< 输入流互斥锁
 };
 
 } // namespace mcp

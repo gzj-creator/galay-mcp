@@ -1,3 +1,13 @@
+/**
+ * @file schema_builder.h
+ * @brief JSON Schema与提示参数构建器
+ * @author galay-mcp
+ * @version 1.0.0
+ *
+ * @details 提供链式调用API用于构建JSON Schema和MCP提示参数定义，
+ *          支持字符串、数字、整数、布尔、数组、对象、枚举等属性类型。
+ */
+
 #ifndef GALAY_MCP_COMMON_MCPSCHEMABUILDER_H
 #define GALAY_MCP_COMMON_MCPSCHEMABUILDER_H
 
@@ -20,6 +30,10 @@ public:
 
     /**
      * @brief 添加字符串属性
+     * @param name 属性名称
+     * @param description 属性描述
+     * @param required 是否为必填属性
+     * @return 当前构建器引用，支持链式调用
      */
     SchemaBuilder& addString(const std::string& name,
                              const std::string& description,
@@ -35,6 +49,10 @@ public:
 
     /**
      * @brief 添加数字属性
+     * @param name 属性名称
+     * @param description 属性描述
+     * @param required 是否为必填属性
+     * @return 当前构建器引用，支持链式调用
      */
     SchemaBuilder& addNumber(const std::string& name,
                              const std::string& description,
@@ -50,6 +68,10 @@ public:
 
     /**
      * @brief 添加整数属性
+     * @param name 属性名称
+     * @param description 属性描述
+     * @param required 是否为必填属性
+     * @return 当前构建器引用，支持链式调用
      */
     SchemaBuilder& addInteger(const std::string& name,
                               const std::string& description,
@@ -65,6 +87,10 @@ public:
 
     /**
      * @brief 添加布尔属性
+     * @param name 属性名称
+     * @param description 属性描述
+     * @param required 是否为必填属性
+     * @return 当前构建器引用，支持链式调用
      */
     SchemaBuilder& addBoolean(const std::string& name,
                               const std::string& description,
@@ -80,6 +106,11 @@ public:
 
     /**
      * @brief 添加数组属性
+     * @param name 属性名称
+     * @param description 属性描述
+     * @param itemType 数组元素类型，默认为"string"
+     * @param required 是否为必填属性
+     * @return 当前构建器引用，支持链式调用
      */
     SchemaBuilder& addArray(const std::string& name,
                             const std::string& description,
@@ -96,7 +127,12 @@ public:
     }
 
     /**
-     * @brief 添加对象属性（使用已有 Schema JSON）
+     * @brief 添加对象属性（使用已有Schema JSON）
+     * @param name 属性名称
+     * @param description 属性描述
+     * @param objectSchema 对象的JSON Schema字符串
+     * @param required 是否为必填属性
+     * @return 当前构建器引用，支持链式调用
      */
     SchemaBuilder& addObject(const std::string& name,
                              const std::string& description,
@@ -113,7 +149,12 @@ public:
     }
 
     /**
-     * @brief 添加对象属性（使用 SchemaBuilder）
+     * @brief 添加对象属性（使用SchemaBuilder）
+     * @param name 属性名称
+     * @param description 属性描述
+     * @param objectSchema 子构建器，自动调用build()
+     * @param required 是否为必填属性
+     * @return 当前构建器引用，支持链式调用
      */
     SchemaBuilder& addObject(const std::string& name,
                              const std::string& description,
@@ -124,6 +165,11 @@ public:
 
     /**
      * @brief 添加枚举属性
+     * @param name 属性名称
+     * @param description 属性描述
+     * @param enumValues 枚举值列表
+     * @param required 是否为必填属性
+     * @return 当前构建器引用，支持链式调用
      */
     SchemaBuilder& addEnum(const std::string& name,
                            const std::string& description,
@@ -178,26 +224,37 @@ public:
     }
 
 private:
+    /**
+     * @brief 属性类型枚举
+     */
     enum class PropertyKind {
-        String,
-        Number,
-        Integer,
-        Boolean,
-        Array,
-        Object,
-        Enum
+        String, ///< 字符串类型
+        Number, ///< 数字类型
+        Integer, ///< 整数类型
+        Boolean, ///< 布尔类型
+        Array, ///< 数组类型
+        Object, ///< 对象类型
+        Enum ///< 枚举类型
     };
 
+    /**
+     * @brief 属性定义结构
+     */
     struct Property {
-        PropertyKind kind{PropertyKind::String};
-        std::string name;
-        std::string description;
-        bool required{false};
-        std::string itemType;
-        std::vector<std::string> enumValues;
-        JsonString objectSchema;
+        PropertyKind kind{PropertyKind::String}; ///< 属性类型
+        std::string name; ///< 属性名称
+        std::string description; ///< 属性描述
+        bool required{false}; ///< 是否必填
+        std::string itemType; ///< 数组元素类型（Array类型使用）
+        std::vector<std::string> enumValues; ///< 枚举值列表（Enum类型使用）
+        JsonString objectSchema; ///< 对象Schema（Object类型使用）
     };
 
+    /**
+     * @brief 将单个属性写入JSON
+     * @param writer JSON写入器
+     * @param prop 属性定义
+     */
     static void writeProperty(JsonWriter& writer, const Property& prop) {
         if (prop.kind == PropertyKind::Object && !prop.objectSchema.empty()) {
             if (prop.description.empty()) {
@@ -284,7 +341,7 @@ private:
         writer.EndObject();
     }
 
-    std::vector<Property> m_properties;
+    std::vector<Property> m_properties; ///< 属性列表
 };
 
 /**
@@ -295,7 +352,11 @@ private:
 class PromptArgumentBuilder {
 public:
     /**
-     * @brief 添加参数
+     * @brief 添加提示参数
+     * @param name 参数名称
+     * @param description 参数描述
+     * @param required 是否为必填参数
+     * @return 当前构建器引用，支持链式调用
      */
     PromptArgumentBuilder& addArgument(const std::string& name,
                                        const std::string& description,
@@ -309,14 +370,15 @@ public:
     }
 
     /**
-     * @brief 构建参数列表
+     * @brief 构建最终的参数列表
+     * @return 提示参数向量
      */
     std::vector<PromptArgument> build() const {
         return m_arguments;
     }
 
 private:
-    std::vector<PromptArgument> m_arguments;
+    std::vector<PromptArgument> m_arguments; ///< 参数列表
 };
 
 } // namespace mcp
